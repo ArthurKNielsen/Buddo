@@ -1,0 +1,13 @@
+{
+  "name": "@buddo/cli",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "buddo": "bin/buddo.js"
+  },
+  "dependencies": {
+    "@buddo/core": "1.0.0",
+    "@buddo/server": "1.0.0"
+  },
+  "license": "MIT"
+}

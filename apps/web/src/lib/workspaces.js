@@ -289,7 +289,10 @@ export async function buildPreview(ws, entry) {
       return tag;
     }
   });
-  return html;
+  // The preview iframe is sandboxed without same-origin access, so storage APIs throw.
+  // Give the page an in-memory stand-in so apps that save data still work.
+  const shim = `<script>(function(){try{localStorage.length}catch(e){var mk=function(){var m={};return{getItem:function(k){return k in m?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}},key:function(i){return Object.keys(m)[i]||null},get length(){return Object.keys(m).length}}};Object.defineProperty(window,'localStorage',{value:mk()});Object.defineProperty(window,'sessionStorage',{value:mk()})}})()</script>`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + shim) : shim + html;
 }
 
 // ── persist the browser folder handle across reloads (IndexedDB) ──

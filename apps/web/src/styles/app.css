@@ -284,6 +284,7 @@
 
 /* ───────── Tool cards ───────── */
 .tool {
+  scroll-margin-bottom: 16px;
   border-radius: 12px;
   background: var(--bg-1);
   border: 1px solid var(--border);

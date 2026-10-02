@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle,
@@ -138,11 +138,19 @@ export default function ToolCard({ part }) {
   const awaiting = part.status === 'awaiting';
   const permission = useStore((s) => s.permission);
   const myTurn = awaiting && permission?.callId === call.id;
+  const cardRef = useRef(null);
   const autoOpen = awaiting || (part.display?.type === 'diff') || call.name === 'todo' || (part.display?.type === 'terminal' && part.display.code !== 0);
   const [open, setOpen] = useState(autoOpen);
   useEffect(() => {
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
+
+  // Make sure the Allow/Deny buttons are visible (they slide in below the diff).
+  useEffect(() => {
+    if (!myTurn) return;
+    const t = setTimeout(() => cardRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), 320);
+    return () => clearTimeout(t);
+  }, [myTurn]);
 
   useEffect(() => {
     if (!myTurn) return;
@@ -167,6 +175,7 @@ export default function ToolCard({ part }) {
 
   return (
     <motion.div
+      ref={cardRef}
       layout="position"
       className={`tool ${part.status}`}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}

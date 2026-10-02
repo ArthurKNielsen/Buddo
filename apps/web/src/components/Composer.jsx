@@ -51,6 +51,7 @@ function ContextRing({ used, total }) {
 
 export default function Composer() {
   const [text, setText] = useState('');
+  const [caretPos, setCaretPos] = useState(null);
   const [files, setFiles] = useState([]);
   const [menuIdx, setMenuIdx] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -84,12 +85,14 @@ export default function Composer() {
   useEffect(() => {
     if (!insert) return;
     setText((t) => (insert.replace ? insert.text : (t ? t.trimEnd() + ' ' : '') + insert.text));
+    setCaretPos(null);
     useStore.setState({ composerInsert: null });
     setTimeout(() => ta.current?.focus(), 0);
   }, [insert]);
 
   // Which popover? "/cmd" at start, or "@path" token at cursor.
-  const caret = ta.current?.selectionStart ?? text.length;
+  // Read from state, not the DOM: during render the textarea still holds the previous value.
+  const caret = Math.min(caretPos ?? text.length, text.length);
   const before = text.slice(0, caret);
   const slashMatch = /^\/([a-z-]*)$/i.exec(before);
   const atMatch = /(?:^|\s)@([\w./-]*)$/.exec(before);
@@ -119,11 +122,15 @@ export default function Composer() {
 
   const choose = (item) => {
     if (menu.type === 'slash') {
-      setText(`/${item.name}${item.arg ? ' ' : ''}` + text.slice(caret));
+      const next = `/${item.name}${item.arg ? ' ' : ''}`;
+      setText(next + text.slice(caret));
+      setCaretPos(next.length);
       if (!item.arg && (item.action || item.prompt)) setTimeout(() => doSubmit(`/${item.name}`), 0);
     } else {
       const start = before.lastIndexOf('@');
-      setText(text.slice(0, start) + '@' + item.path + ' ' + text.slice(caret));
+      const head = text.slice(0, start) + '@' + item.path + ' ';
+      setText(head + text.slice(caret));
+      setCaretPos(head.length);
     }
     ta.current?.focus();
   };
@@ -133,6 +140,7 @@ export default function Composer() {
     if (!value.trim() && !files.length) return;
     submit(value, files);
     setText('');
+    setCaretPos(null);
     setFiles([]);
   };
 
@@ -165,6 +173,7 @@ export default function Composer() {
       if (lastUser) {
         e.preventDefault();
         setText(lastUser.text);
+        setCaretPos(null);
       }
     }
   };
@@ -259,7 +268,11 @@ export default function Composer() {
             rows={1}
             value={text}
             placeholder={busy ? 'Buddo is working… (esc to stop)' : `Ask Buddo to build, fix or explain anything in ${ws?.name || 'your project'}…  (/ commands · @ files)`}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaretPos(e.target.selectionStart);
+            }}
+            onSelect={(e) => setCaretPos(e.target.selectionStart)}
             onKeyDown={onKey}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}

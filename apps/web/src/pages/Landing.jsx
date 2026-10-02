@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import Logo from '../components/Logo.jsx';
 import { navigate } from '../App.jsx';
+import { href } from '../lib/paths.js';
 
 const GITHUB = 'https://github.com/arthurknielsen/buddo';
 
@@ -214,7 +215,7 @@ export default function Landing() {
       </div>
 
       <nav className={'l-nav' + (scrolled ? ' scrolled' : '')}>
-        <a className="brand" href="/">
+        <a className="brand" href={href('/')}>
           <Logo size={28} />
           <span className="brand-name">buddo</span>
         </a>
@@ -228,7 +229,7 @@ export default function Landing() {
           <a className="icon-btn" href={GITHUB} target="_blank" rel="noreferrer" title="GitHub">
             <Github size={18} />
           </a>
-          <a href="/app" onClick={openApp} className="btn btn-primary btn-sm">
+          <a href={href('/app')} onClick={openApp} className="btn btn-primary btn-sm">
             Open app <ArrowRight size={14} />
           </a>
         </div>
@@ -248,7 +249,7 @@ export default function Landing() {
             Buddo is an autonomous coding agent that reads your codebase, writes features, fixes bugs and runs your tests — powered by open AI models running locally. No accounts. No bills. No data leaving your laptop.
           </motion.p>
           <motion.div className="hero-ctas" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
-            <a href="/app" onClick={openApp} className="btn btn-primary btn-lg">
+            <a href={href('/app')} onClick={openApp} className="btn btn-primary btn-lg">
               Start building — it's free <ArrowRight size={16} />
             </a>
             <a href="#download" className="btn btn-outline btn-lg">
@@ -362,7 +363,7 @@ export default function Landing() {
             </div>
             <h3>Web app</h3>
             <p>Open it in your browser. Edit local folders or a sandbox, with zero-install in-browser models.</p>
-            <a href="/app" onClick={openApp} className="btn btn-primary">
+            <a href={href('/app')} onClick={openApp} className="btn btn-primary">
               Open Buddo <ArrowRight size={14} />
             </a>
           </GlowCard>
@@ -418,7 +419,7 @@ export default function Landing() {
         <Logo size={64} />
         <h2>Ready to meet your buddy?</h2>
         <p className="muted">Free forever. Open source. Takes two minutes.</p>
-        <a href="/app" onClick={openApp} className="btn btn-primary btn-lg">
+        <a href={href('/app')} onClick={openApp} className="btn btn-primary btn-lg">
           Launch Buddo <ArrowRight size={16} />
         </a>
       </motion.section>

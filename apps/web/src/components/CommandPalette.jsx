@@ -6,6 +6,7 @@ import {
 import { SLASH_COMMANDS } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { submit } from '../lib/runner.js';
+import { href } from '../lib/paths.js';
 
 export default function CommandPalette() {
   const open = useStore((s) => s.ui.palette);
@@ -36,7 +37,7 @@ export default function CommandPalette() {
       { group: 'Actions', icon: SunMoon, label: `Switch to ${settings.theme === 'dark' ? 'light' : 'dark'} theme`, run: () => st.setSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' }) },
       { group: 'Actions', icon: Settings, label: 'Settings', hint: '⌘,', run: () => st.setUI({ settings: true }) },
       { group: 'Actions', icon: Keyboard, label: 'Keyboard shortcuts & commands', run: () => st.setUI({ help: true }) },
-      { group: 'Actions', icon: Home, label: 'Go to buddo homepage', run: () => (location.href = '/') },
+      { group: 'Actions', icon: Home, label: 'Go to buddo homepage', run: () => (location.href = href('/')) },
       { group: 'Mode', icon: ShieldCheck, label: 'Mode: Ask before changes', run: () => st.setSettings({ mode: 'ask' }) },
       { group: 'Mode', icon: Zap, label: 'Mode: Auto-accept edits', run: () => st.setSettings({ mode: 'auto' }) },
       { group: 'Mode', icon: Flame, label: 'Mode: YOLO (approve everything)', run: () => st.setSettings({ mode: 'yolo' }) },

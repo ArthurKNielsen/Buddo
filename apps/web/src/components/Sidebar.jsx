@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Search, MessageSquare, Trash2, FolderOpen, Settings, PanelLeftClose, HardDrive, Globe, Box, Pencil, Command } from 'lucide-react';
 import { useStore } from '../lib/store.js';
 import Logo from './Logo.jsx';
+import { href } from '../lib/paths.js';
 
 function groupByDate(sessions) {
   const now = new Date();
@@ -144,7 +145,7 @@ export default function Sidebar() {
             <Command size={16} />
           </button>
           <span className="spacer" />
-          <a className="sb-link" href="/">buddo.dev</a>
+          <a className="sb-link" href={href('/')}>Homepage</a>
         </div>
       </div>
     </div>

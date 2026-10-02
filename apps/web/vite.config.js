@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react';
 const server = process.env.BUDDO_SERVER || 'http://127.0.0.1:4141';
 
 export default defineConfig({
+  // Set BUDDO_BASE=/RepoName/ when hosting under a sub-path (GitHub Pages).
+  base: process.env.BUDDO_BASE || '/',
   plugins: [react()],
   server: {
     port: 5173,

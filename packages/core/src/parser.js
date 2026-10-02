@@ -114,7 +114,8 @@ export function analyze(raw) {
   let safe = prose;
   if (!call) {
     const lt = safe.lastIndexOf('<');
-    if (lt !== -1 && safe.length - lt < 16 && !safe.slice(lt).includes('>')) safe = safe.slice(0, lt);
+    // Hold back anything that could still become a tag (<tool:run_command>, <think>, <tool_call>…).
+    if (lt !== -1 && /^<[a-z_:]{0,40}$/i.test(safe.slice(lt))) safe = safe.slice(0, lt);
     // Hold back a trailing fence that may be opening a tool block.
     safe = safe.replace(/```[\w-]*\s*$/, '');
   }

@@ -21,6 +21,8 @@ test('strips code fences and thinking', () => {
   assert.equal(a.call.args.path, 'x');
   const partial = analyze('Hello <to');
   assert.equal(partial.safe, 'Hello ');
+  assert.equal(analyze('Checking.\n<tool:run_command').safe, 'Checking.\n');
+  assert.equal(analyze('a < b and c').safe, 'a < b and c');
 });
 
 test('accepts native JSON tool calls', () => {

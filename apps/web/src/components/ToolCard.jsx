@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle, Clapperboard, Ear, Image as ImageIcon,
+  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle, Clapperboard, Ear, Image as ImageIcon, Camera, Video, Brain, ExternalLink,
 } from 'lucide-react';
 import MediaView from './MediaView.jsx';
 import { describeCall, diffLines, diffStats, parseTodos } from '@buddo/core';
@@ -22,6 +22,10 @@ const META = {
   watch_video: { icon: Clapperboard, label: 'Watch' },
   listen_audio: { icon: Ear, label: 'Listen' },
   view_image: { icon: ImageIcon, label: 'Look' },
+  web_search: { icon: Search, label: 'Web search' },
+  screenshot: { icon: Camera, label: 'Screenshot' },
+  record_video: { icon: Video, label: 'Record' },
+  remember: { icon: Brain, label: 'Remember' },
 };
 
 function Stats({ before, after }) {
@@ -116,6 +120,27 @@ function Body({ part }) {
       return <pre className="tool-output">{d.text.slice(0, 4000)}</pre>;
     case 'media':
       return <MediaView d={d} />;
+    case 'websearch':
+      return (
+        <div className="web-results">
+          {d.results.map((r, i) => (
+            <a key={i} className="web-result" href={r.url} target="_blank" rel="noreferrer">
+              <span className="wr-title">
+                {r.title} <ExternalLink size={11} />
+              </span>
+              <span className="wr-url">{r.url.replace(/^https?:\/\//, '').slice(0, 80)}</span>
+              {r.snippet && <span className="wr-snippet">{r.snippet}</span>}
+            </a>
+          ))}
+          {!d.results.length && <div className="faint" style={{ padding: 12 }}>No results ({d.tried.map((t) => t.engine).join(', ')})</div>}
+        </div>
+      );
+    case 'memory':
+      return (
+        <div className="memory-note">
+          <Brain size={14} /> {d.fact}
+        </div>
+      );
     default:
       return <pre className="tool-output">{part.output}</pre>;
   }
@@ -134,7 +159,9 @@ function summary(part) {
     case 'terminal': return d.code === 0 ? 'exit 0' : `exit ${d.code}`;
     case 'todos': return `${d.todos.filter((t) => t.status === 'done').length}/${d.todos.length} done`;
     case 'web': return `${Math.round(d.text.length / 1000)}k chars`;
-    case 'media': return `${d.kind === 'video' ? `${d.frames.length} frames${d.hearing ? ' + audio' : ''}` : d.kind === 'audio' ? `${d.hearing?.speech?.segments.length || 0} lines heard` : `${d.objects.length} objects`} · ${(d.ms / 1000).toFixed(1)}s`;
+    case 'websearch': return `${d.results.length} results${d.engine ? ` · ${d.engine}` : ''}`;
+    case 'memory': return 'saved to memory';
+    case 'media': return d.kind === 'screenshot' ? `${d.size?.join('×')} · ${(d.ms / 1000).toFixed(1)}s` : d.kind === 'recording' ? `${d.frames?.length || 0} frames · ${(d.ms / 1000).toFixed(1)}s` : `${d.kind === 'video' ? `${d.frames.length} frames${d.hearing ? ' + audio' : ''}` : d.kind === 'audio' ? `${d.hearing?.speech?.segments.length || 0} lines heard` : `${d.objects.length} objects`} · ${(d.ms / 1000).toFixed(1)}s`;
     default: return null;
   }
 }
@@ -146,7 +173,7 @@ export default function ToolCard({ part }) {
   const permission = useStore((s) => s.permission);
   const myTurn = awaiting && permission?.callId === call.id;
   const cardRef = useRef(null);
-  const autoOpen = awaiting || (part.display?.type === 'diff') || part.display?.type === 'media' || call.name === 'todo' || (part.display?.type === 'terminal' && part.display.code !== 0);
+  const autoOpen = awaiting || (part.display?.type === 'diff') || part.display?.type === 'media' || part.display?.type === 'memory' || call.name === 'todo' || (part.display?.type === 'terminal' && part.display.code !== 0);
   const [open, setOpen] = useState(autoOpen);
   useEffect(() => {
     if (autoOpen) setOpen(true);

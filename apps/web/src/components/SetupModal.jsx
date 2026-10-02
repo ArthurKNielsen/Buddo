@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ArrowLeft, Check, Cpu, Globe, Server, Shield, Zap, Heart, Copy, HardDrive, Box, FolderOpen, Loader2 } from 'lucide-react';
 import { RECOMMENDED_MODELS } from '@buddo/core';
 import { useStore } from '../lib/store.js';
-import { checkEngine, WEBLLM_MODELS, loadWebLLM, hasWebGPU, pickBrowserFolder, useSandbox } from '../lib/engine.js';
+import { checkEngine, WEBLLM_MODELS, loadWebLLM, hasWebGPU, pickBrowserFolder, useSandbox, isMobile } from '../lib/engine.js';
 import { supportsFolderAccess } from '../lib/workspaces.js';
 import { PullButton } from './ModelPicker.jsx';
 import Logo from './Logo.jsx';
@@ -152,7 +152,10 @@ function WebLLMSetup() {
         {WEBLLM_MODELS.map((m) => (
           <button key={m.id} className={'model-row' + (settings.webllmModel === m.id ? ' on' : '')} onClick={() => setSettings({ webllmModel: m.id })}>
             <div className="model-meta">
-              <div className="mono">{m.label}</div>
+              <div className="row" style={{ gap: 6 }}>
+                <span className="mono">{m.label}</span>
+                {m.pocket && <span className="pocket-badge">⚡ Pocket</span>}
+              </div>
               <div className="faint">
                 {m.size} · {m.note}
               </div>
@@ -271,11 +274,15 @@ function WorkspaceStep() {
   );
 }
 
-const ENGINES = [
+const ENGINES_DESKTOP = [
   { id: 'ollama', icon: Cpu, title: 'Ollama', tag: 'Recommended', desc: 'Runs open models on your computer. Best quality, fully offline.' },
   { id: 'webllm', icon: Globe, title: 'In your browser', tag: 'Zero install', desc: 'WebGPU-powered. Nothing to install, smaller models.' },
   { id: 'openai', icon: Server, title: 'LM Studio & others', tag: 'Advanced', desc: 'Any local OpenAI-compatible server: LM Studio, llama.cpp, Jan…' },
 ];
+// On phones, the tiny in-browser "Pocket" models are the only practical option.
+const ENGINES = isMobile()
+  ? [{ id: 'webllm', icon: Globe, title: 'Pocket (on this phone)', tag: 'Best for phones', desc: 'Tiny, fast models that run right on your phone. ~200–700 MB, one-time download.' }, ...ENGINES_DESKTOP.filter((e) => e.id !== 'webllm')]
+  : ENGINES_DESKTOP;
 
 export default function SetupModal() {
   const open = useStore((s) => s.ui.setup);
@@ -287,6 +294,10 @@ export default function SetupModal() {
   const [dir, setDir] = useState(1);
   useEffect(() => {
     if (open) setStep(settings.onboarded ? 2 : 0);
+    // First run on a phone without a local server → default to the fastest Pocket model.
+    if (open && !settings.onboarded && isMobile() && !useStore.getState().server) {
+      setSettings({ engine: 'webllm', webllmModel: WEBLLM_MODELS.find((m) => m.pocket).id });
+    }
   }, [open]);
 
   const go = (n) => {

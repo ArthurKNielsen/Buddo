@@ -6,6 +6,8 @@ export const SLASH_COMMANDS = [
   { name: 'clear', desc: 'Start a fresh conversation', action: 'clear' },
   { name: 'model', desc: 'Switch the local model', action: 'model' },
   { name: 'mode', desc: 'Change permission mode (ask / auto / yolo / plan)', action: 'mode', arg: 'mode' },
+  { name: 'memory', desc: 'See what Buddo knows about you', action: 'memory' },
+  { name: 'vibe', desc: 'Change personality (buddy, genz, pro, hype, teacher, minimal)', action: 'vibe', arg: 'vibe' },
   { name: 'compact', desc: 'Summarize the conversation to free up context', action: 'compact' },
   {
     name: 'init',

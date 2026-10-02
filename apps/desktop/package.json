@@ -25,6 +25,7 @@
     "files": [
       "main.js",
       "preload.cjs",
+      "browser-electron.js",
       "icon.png",
       "app/**/*"
     ],

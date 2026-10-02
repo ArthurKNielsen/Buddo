@@ -3,11 +3,13 @@
 
 import { diffLines, diffStats } from './diff.js';
 import { formatTree } from './tree.js';
+import { formatSearch } from './websearch.js';
 
 export const TOOLS = [
   {
     name: 'list_dir',
     kind: 'read',
+    lite: true,
     params: ['path', 'depth'],
     desc: 'List files and folders as a tree. `depth` defaults to 2.',
     example: '<tool:list_dir>\n<path>src</path>\n</tool:list_dir>',
@@ -15,6 +17,7 @@ export const TOOLS = [
   {
     name: 'read_file',
     kind: 'read',
+    lite: true,
     params: ['path', 'start', 'end'],
     desc: 'Read a file. Output has line numbers (do NOT copy them into edits). Optional `start`/`end` line numbers for big files.',
     example: '<tool:read_file>\n<path>src/app.js</path>\n</tool:read_file>',
@@ -36,6 +39,7 @@ export const TOOLS = [
   {
     name: 'write_file',
     kind: 'write',
+    lite: true,
     params: ['path', 'content'],
     desc: 'Create or fully overwrite a file with raw content (no escaping needed). Prefer edit_file for small changes to existing files.',
     example: '<tool:write_file>\n<path>hello.py</path>\n<content>\nprint("hi")\n</content>\n</tool:write_file>',
@@ -43,6 +47,7 @@ export const TOOLS = [
   {
     name: 'edit_file',
     kind: 'write',
+    lite: true,
     params: ['path', 'old', 'new', 'all'],
     desc: 'Replace an exact snippet in a file. `old` must match the file exactly (copy it from read_file, without line numbers) and be unique; include surrounding lines if needed. Set <all>true</all> to replace every occurrence.',
     example: '<tool:edit_file>\n<path>src/app.js</path>\n<old>\nconst port = 3000;\n</old>\n<new>\nconst port = process.env.PORT || 3000;\n</new>\n</tool:edit_file>',
@@ -50,9 +55,18 @@ export const TOOLS = [
   {
     name: 'run_command',
     kind: 'exec',
+    lite: true,
     params: ['command', 'cwd'],
     desc: 'Run a shell command in the workspace (tests, builds, git, installs). Non-interactive only; 2 min timeout.',
     example: '<tool:run_command>\n<command>npm test</command>\n</tool:run_command>',
+  },
+  {
+    name: 'web_search',
+    kind: 'read',
+    lite: true,
+    params: ['query', 'source'],
+    desc: 'Search the internet (free). Use for docs, error messages, latest versions, news — anything you are not sure about. `source` is optional: web (default), npm (packages) or wikipedia. Then fetch_url the best result.',
+    example: '<tool:web_search>\n<query>vite 7 migration guide</query>\n</tool:web_search>',
   },
   {
     name: 'fetch_url',
@@ -60,6 +74,22 @@ export const TOOLS = [
     params: ['url'],
     desc: 'Fetch a web page or docs URL and return its readable text.',
     example: '<tool:fetch_url>\n<url>https://example.com/docs</url>\n</tool:fetch_url>',
+  },
+  {
+    name: 'screenshot',
+    kind: 'read',
+    browser: true,
+    params: ['target', 'size', 'full', 'actions'],
+    desc: 'See your own work: open a web page and take a screenshot (attached so you can look at it) plus a report (console errors, broken images, horizontal overflow, visible text, buttons). `target`: a URL (e.g. http://localhost:5173) or an .html file in the project (default: index.html). `size`: desktop (default), mobile, or WIDTHxHEIGHT. `full`: true for the whole page. `actions`: optional steps, one per line — click <selector or text>, type <selector> <text>, press <key>, scroll <pixels>, hover <selector>, wait <ms>.',
+    example: '<tool:screenshot>\n<target>index.html</target>\n<size>mobile</size>\n</tool:screenshot>',
+  },
+  {
+    name: 'record_video',
+    kind: 'read',
+    browser: true,
+    params: ['target', 'size', 'actions', 'seconds'],
+    desc: 'Record a video of a web page while doing `actions` (same steps as screenshot) for animations, interactions and flows. Saves an .mp4 in .buddo/recordings/ and shows you the key frames. `seconds`: extra time to keep recording (default 4, max 30).',
+    example: '<tool:record_video>\n<target>index.html</target>\n<actions>\nclick Add task\ntype #input Buy milk\npress Enter\n</actions>\n</tool:record_video>',
   },
   {
     name: 'watch_video',
@@ -84,6 +114,15 @@ export const TOOLS = [
     params: ['path'],
     desc: 'Look at an image file (png, jpg, webp, gif…). The image is attached so you can see it, plus detected objects with their positions.',
     example: '<tool:view_image>\n<path>screenshot.png</path>\n</tool:view_image>',
+  },
+  {
+    name: 'remember',
+    kind: 'meta',
+    lite: true,
+    memory: true,
+    params: ['fact'],
+    desc: 'Save a lasting fact about the user so you know them better next time (their name, skills, preferences, tools they like, ongoing projects). One short sentence. Only for things that will still matter later — never secrets or passwords.',
+    example: '<tool:remember>\n<fact>Prefers TypeScript and Tailwind for web projects</fact>\n</tool:remember>',
   },
   {
     name: 'todo',
@@ -160,6 +199,13 @@ export function locateSnippet(content, old) {
   return found;
 }
 
+// After UI changes, nudge the model to look at its own work.
+function visualHint(path, workspace) {
+  return workspace.media?.screenshot && /\.(html?|css|scss|jsx|tsx|vue|svelte|astro)$/i.test(path)
+    ? ' Tip: when the UI is ready, check it with screenshot (and mobile size) before finishing.'
+    : '';
+}
+
 function lineOf(content, index) {
   return content.slice(0, index).split('\n').length;
 }
@@ -233,7 +279,7 @@ export async function executeTool(call, ctx) {
         const stats = diffStats(diffLines(before ?? '', content));
         return {
           ok: true,
-          output: `${before === null ? 'Created' : 'Overwrote'} ${path} (${content.split('\n').length} lines, +${stats.added} -${stats.removed}).`,
+          output: `${before === null ? 'Created' : 'Overwrote'} ${path} (${content.split('\n').length} lines, +${stats.added} -${stats.removed}).${visualHint(path, workspace)}`,
           display: { type: 'diff', path, before, after: content, created: before === null },
         };
       }
@@ -264,7 +310,7 @@ export async function executeTool(call, ctx) {
         const stats = diffStats(diffLines(content, after));
         return {
           ok: true,
-          output: `Edited ${path} at line ${lineOf(content, matches[0][0])} (+${stats.added} -${stats.removed}).`,
+          output: `Edited ${path} at line ${lineOf(content, matches[0][0])} (+${stats.added} -${stats.removed}).${visualHint(path, workspace)}`,
           display: { type: 'diff', path, before: content, after },
         };
       }
@@ -284,6 +330,32 @@ export async function executeTool(call, ctx) {
           output: `$ ${command}\n${clip(out || '(no output)')}\n[exit code ${r.code}${r.timedOut ? ', timed out' : ''}]`,
           display: { type: 'terminal', command, output: out, code: r.code },
         };
+      }
+      case 'web_search': {
+        const query = need('query');
+        if (!workspace.webSearch) return { ok: false, output: 'Web search is not available here.' };
+        const r = await workspace.webSearch(query, { source: (a.source || 'web').toLowerCase() });
+        return { ok: r.results.length > 0, output: formatSearch(query, r), display: { type: 'websearch', query, engine: r.engine, results: r.results, tried: r.tried } };
+      }
+      case 'screenshot':
+      case 'record_video': {
+        if (!workspace.media?.[call.name]) {
+          return { ok: false, output: 'Screenshots and recordings need the Buddo desktop app or `buddo web` with Chrome/Edge installed. Tell the user how to check the page instead.' };
+        }
+        const r = await workspace.media[call.name]({
+          target: a.target || '',
+          size: a.size || 'desktop',
+          full: /^(true|yes|1)$/i.test(String(a.full || '').trim()),
+          actions: a.actions || '',
+          seconds: a.seconds ? Math.min(30, Math.max(0, parseFloat(a.seconds) || 4)) : undefined,
+        });
+        return { ok: true, output: r.text, images: r.images || [], display: r.display };
+      }
+      case 'remember': {
+        const fact = need('fact').replace(/\s+/g, ' ').slice(0, 300);
+        if (!ctx.onRemember) return { ok: false, output: 'Memory is turned off by the user.' };
+        const saved = await ctx.onRemember(fact);
+        return { ok: true, output: saved === false ? 'Already known.' : `Remembered: ${fact}`, display: { type: 'memory', fact } };
       }
       case 'fetch_url': {
         const url = need('url').trim();
@@ -340,6 +412,10 @@ export function describeCall(call) {
     case 'edit_file': return a.path;
     case 'run_command': return a.command;
     case 'fetch_url': return a.url;
+    case 'web_search': return `“${a.query}”${a.source && a.source !== 'web' ? ` on ${a.source}` : ''}`;
+    case 'screenshot':
+    case 'record_video': return `${a.target || 'index.html'}${a.size && a.size !== 'desktop' ? ` · ${a.size}` : ''}`;
+    case 'remember': return a.fact;
     case 'watch_video':
     case 'listen_audio': return a.path + (a.start || a.end ? ` (${a.start || 0}–${a.end || 'end'})` : '');
     case 'view_image': return a.path;

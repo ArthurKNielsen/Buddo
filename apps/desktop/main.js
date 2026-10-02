@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { electronBrowserProvider } from './browser-electron.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const statePath = () => path.join(app.getPath('userData'), 'state.json');
@@ -40,7 +41,7 @@ async function boot() {
   }
   for (let port = 41410; port < 41430; port++) {
     try {
-      server = await startServer({ port, root, webDir, log: () => {} });
+      server = await startServer({ port, root, webDir, log: () => {}, browserProvider: electronBrowserProvider() });
       break;
     } catch (e) {
       if (e.code !== 'EADDRINUSE') throw e;

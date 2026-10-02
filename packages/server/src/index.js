@@ -8,7 +8,8 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { Readable } from 'node:stream';
-import { createNodeWorkspace, loadMedia } from '@buddo/core/node';
+import { createNodeWorkspace, loadMedia, loadProfile, saveProfile } from '@buddo/core/node';
+import { normalizeProfile } from '@buddo/core';
 import crypto from 'node:crypto';
 
 const MIME = {
@@ -49,8 +50,9 @@ async function json(req) {
   return b.length ? JSON.parse(b.toString('utf8')) : {};
 }
 
-export async function startServer({ port = 4141, host = '127.0.0.1', root = process.cwd(), webDir, log = console.log } = {}) {
-  let workspace = createNodeWorkspace(root);
+export async function startServer({ port = 4141, host = '127.0.0.1', root = process.cwd(), webDir, log = console.log, browserProvider } = {}) {
+  const wsOpts = { browserProvider };
+  let workspace = createNodeWorkspace(root, wsOpts);
   // Token for <img>/<video> previews of workspace files (those requests can't send custom headers).
   const rawToken = crypto.randomBytes(16).toString('hex');
   // Warm up the senses in the background so the first watch/listen is instant.
@@ -71,7 +73,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       const full = path.resolve(next.replace(/^~(?=$|[\\/])/, os.homedir()));
       const st = await fs.stat(full).catch(() => null);
       if (!st?.isDirectory()) return send(res, 400, { error: `Not a folder: ${full}` });
-      workspace = createNodeWorkspace(full);
+      workspace = createNodeWorkspace(full, wsOpts);
       log(`  workspace → ${full}`);
       return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities });
     }
@@ -141,7 +143,21 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       res.end(JSON.stringify({ type: 'exit', ...r }) + '\n');
       return;
     }
-    if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image'].includes(p.slice(11))) {
+    if (p === '/api/websearch' && req.method === 'POST') {
+      const b = await json(req);
+      return send(res, 200, await workspace.webSearch(b.query, { source: b.source }));
+    }
+    if (p === '/api/profile' && req.method === 'GET') return send(res, 200, loadProfile());
+    if (p === '/api/profile' && req.method === 'PUT') {
+      const next = normalizeProfile(await json(req));
+      saveProfile(next);
+      return send(res, 200, next);
+    }
+    if (p === '/api/browser/status') {
+      const m = await loadMedia().catch(() => null);
+      return send(res, 200, { available: !!(m && m.browserAvailable(browserProvider)), provider: browserProvider ? browserProvider.name : 'chrome' });
+    }
+    if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image', 'screenshot', 'record_video'].includes(p.slice(11))) {
       return send(res, 200, await workspace.media[p.slice(11)](await json(req)));
     }
     if (p === '/api/media/status') {
@@ -275,7 +291,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       return workspace;
     },
     setRoot(dir) {
-      workspace = createNodeWorkspace(dir);
+      workspace = createNodeWorkspace(dir, wsOpts);
     },
     close: () => new Promise((r) => server.close(r)),
   };

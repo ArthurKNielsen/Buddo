@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, Mic, AudioLines, Scissors, Zap } from 'lucide-react';
+import { Eye, Mic, AudioLines, Scissors, Zap, AlertTriangle, CheckCircle2, MousePointerClick, Film } from 'lucide-react';
 
 const fmt = (s) => {
   const m = Math.floor(s / 60);
@@ -60,9 +60,64 @@ function Hearing({ h }) {
   );
 }
 
+function PageReport({ d }) {
+  const r = d.report;
+  if (!r) return null;
+  const issues = [
+    r.overflowX ? `Page is ${r.overflowX}px wider than the screen${r.overflow?.length ? ` — ${r.overflow[0]}` : ''}` : null,
+    r.brokenImages?.length ? `Broken images: ${r.brokenImages.join(', ')}` : null,
+    r.empty ? 'Page looks empty' : null,
+    ...(d.logs || []).filter((l) => l.type === 'error').slice(0, 3).map((l) => `Console: ${l.text.slice(0, 120)}`),
+  ].filter(Boolean);
+  return (
+    <>
+      {d.steps?.length > 0 && (
+        <div>
+          <h5>
+            <MousePointerClick size={12} /> Did
+          </h5>
+          <div className="media-lines">
+            {d.steps.map((s, i) => (
+              <div key={i} className={s.startsWith('FAILED') ? 'err' : ''}>
+                <span className="ts">{i + 1}.</span>
+                <span>{s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div>
+        <h5>{issues.length ? <AlertTriangle size={12} className="warn" /> : <CheckCircle2 size={12} className="ok" />} {issues.length ? `Noticed ${issues.length} issue${issues.length > 1 ? 's' : ''}` : 'Looks healthy'}</h5>
+        {issues.length > 0 && (
+          <div className="media-lines">
+            {issues.map((x, i) => (
+              <div key={i} className="warn-line">• {x}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function MediaView({ d }) {
   const [zoom, setZoom] = useState(false);
   const m = d.meta || {};
+  if (d.kind === 'screenshot') {
+    return (
+      <div className="media">
+        <div className="media-meta">
+          <span className="chip">{d.size?.join('×')}</span>
+          {d.report?.title && <span className="chip">“{d.report.title}”</span>}
+          <span className="chip">
+            <Zap size={11} className="speed" /> <span className="speed">{(d.ms / 1000).toFixed(1)}s</span>
+          </span>
+        </div>
+        {d.image && <img className={'media-shot' + (d.size?.[0] < 600 ? ' phone' : '')} src={`data:image/jpeg;base64,${d.image}`} alt="Screenshot" />}
+        <PageReport d={d} />
+      </div>
+    );
+  }
   return (
     <div className="media">
       <div className="media-meta">
@@ -73,6 +128,11 @@ export default function MediaView({ d }) {
           </span>
         )}
         {d.kind === 'video' && <span className="chip">{m.audio ? 'with audio' : 'no audio'}</span>}
+        {d.saved && (
+          <span className="chip">
+            <Film size={11} /> {d.saved}
+          </span>
+        )}
         <span className="chip">
           <Zap size={11} className="speed" /> <span className="speed">{(d.ms / 1000).toFixed(1)}s</span>
         </span>
@@ -81,6 +141,7 @@ export default function MediaView({ d }) {
         <img className={'media-sheet' + (zoom ? ' zoom' : '')} style={zoom ? {} : { maxHeight: 300, objectFit: 'contain' }} src={`data:image/jpeg;base64,${d.sheet}`} onClick={() => setZoom(!zoom)} alt="Key frames" />
       )}
       {d.image && <img className="media-img" src={`data:image/jpeg;base64,${d.image}`} alt={d.name} />}
+      {d.kind === 'recording' && <PageReport d={d} />}
       {d.kind === 'video' && (
         <div>
           <h5>

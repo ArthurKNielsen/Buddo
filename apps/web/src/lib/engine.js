@@ -28,12 +28,26 @@ export async function refreshFileIndex() {
 
 // ───────── WebLLM (in-browser, WebGPU) ─────────
 export const WEBLLM_MODELS = [
+  // Pocket models: tiny, fast enough for phones (iPhone Safari 26+ has WebGPU).
+  { id: 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC', label: 'Pocket Coder 0.5B', size: '≈300 MB', note: 'Fastest — made for phones ⚡', pocket: true },
+  { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', label: 'Pocket Mini 360M', size: '≈200 MB', note: 'Ultralight chat, older phones', pocket: true },
+  { id: 'Qwen3-0.6B-q4f16_1-MLC', label: 'Pocket Thinker 0.6B', size: '≈350 MB', note: 'Tiny model that reasons', pocket: true },
+  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Pocket Plus 1B', size: '≈700 MB', note: 'Best quality under 1 GB', pocket: true },
   { id: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 7B', size: '≈5.1 GB', note: 'Smartest — needs a good GPU' },
   { id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 3B', size: '≈2.5 GB', note: 'Balanced — recommended' },
   { id: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 1.5B', size: '≈1.6 GB', note: 'Fast, for most laptops' },
   { id: 'Qwen3-4B-q4f16_1-MLC', label: 'Qwen 3 4B', size: '≈3.4 GB', note: 'Reasoning model' },
   { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', size: '≈2.3 GB', note: 'General purpose' },
 ];
+
+/** Tiny models (any engine) get the short "lite" prompt and a small context so they stay fast. */
+export const isPocketModel = (id = '') => WEBLLM_MODELS.some((m) => m.pocket && m.id === id) || /(^|[:\-_])(0\.5b|360m|135m|0\.6b|1b|1\.1b)\b/i.test(id);
+export const isMobile = () => typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)));
+export function liteMode(settings = useStore.getState().settings) {
+  if (settings.lite === 'on') return true;
+  if (settings.lite === 'off') return false;
+  return isPocketModel(currentModel(settings));
+}
 
 let webllmEngine = null;
 let webllmLoaded = '';
@@ -51,9 +65,9 @@ export async function loadWebLLM(model) {
     const onProgress = (p) => useStore.setState({ webllm: { text: p.text, progress: p.progress } });
     if (webllmEngine) {
       webllmEngine.setInitProgressCallback?.(onProgress);
-      await webllmEngine.reload(model, { context_window_size: 8192 });
+      await webllmEngine.reload(model, { context_window_size: isPocketModel(model) ? 4096 : 8192 });
     } else {
-      webllmEngine = await webllm.CreateMLCEngine(model, { initProgressCallback: onProgress }, { context_window_size: 8192 });
+      webllmEngine = await webllm.CreateMLCEngine(model, { initProgressCallback: onProgress }, { context_window_size: isPocketModel(model) ? 4096 : 8192 });
     }
     webllmLoaded = model;
     useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true } });
@@ -82,7 +96,14 @@ function webllmProvider() {
     },
     async *stream({ model, messages, signal, options = {} }) {
       const engine = await loadWebLLM(model);
-      const chunks = await engine.chat.completions.create({ messages, stream: true, temperature: options.temperature ?? 0.2, stream_options: { include_usage: true } });
+      const chunks = await engine.chat.completions.create({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: true,
+        temperature: options.temperature ?? 0.2,
+        // Short replies keep tiny models snappy on phones.
+        max_tokens: isPocketModel(model) ? 900 : 2048,
+        stream_options: { include_usage: true },
+      });
       for await (const c of chunks) {
         if (signal?.aborted) {
           engine.interruptGenerate();
@@ -146,12 +167,44 @@ export async function checkEngine() {
 }
 
 // ───────── Workspaces ─────────
+// Personality + memories are shared with the CLI through ~/.buddo/profile.json when the local server runs.
+let profileSync = null;
+async function syncProfile() {
+  try {
+    const remote = await api('/api/profile');
+    const local = useStore.getState().profile;
+    const ids = new Set(remote.memories.map((m) => m.text));
+    const merged = { ...remote, ...(local.memories.length || local.vibe !== 'buddy' ? local : {}), memories: [...remote.memories, ...local.memories.filter((m) => !ids.has(m.text))] };
+    useStore.setState({ profile: merged });
+    await api('/api/profile', { method: 'PUT', body: merged });
+  } catch {}
+  if (profileSync) return;
+  profileSync = useStore.subscribe((s, prev) => {
+    if (s.profile === prev.profile) return;
+    clearTimeout(profileSync.t);
+    profileSync.t = setTimeout(() => api('/api/profile', { method: 'PUT', body: useStore.getState().profile }).catch(() => {}), 400);
+  });
+}
+
+// Only offer screenshot / record_video when the server has a browser to drive.
+let browserOk = null;
+async function makeServerWorkspace(info) {
+  const ws = serverWorkspace(info);
+  browserOk ??= api('/api/browser/status').then((b) => b.available).catch(() => false);
+  if (!(await browserOk)) {
+    delete ws.media.screenshot;
+    delete ws.media.record_video;
+  }
+  return ws;
+}
+
 export async function initWorkspace() {
   const server = await probeServer();
   useStore.setState({ server });
+  if (server) syncProfile();
   if (server) {
     const info = await api('/api/workspace');
-    publishWorkspace(serverWorkspace(info));
+    publishWorkspace(await makeServerWorkspace(info));
     return;
   }
   const kind = localStorage.getItem('buddo-ws-kind');
@@ -179,7 +232,7 @@ export async function reconnectFolder() {
 
 export async function openServerFolder(root) {
   const info = await api('/api/workspace', { method: 'POST', body: { root } });
-  publishWorkspace(serverWorkspace(info));
+  publishWorkspace(await makeServerWorkspace(info));
   localStorage.setItem('buddo-last-root', info.root);
   return info;
 }

@@ -11,10 +11,17 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { ffmpeg, probe, fmtTime, FFMPEG } from './ffmpeg.js';
 import { decodeAudio, hear, preloadHearing } from './hearing.js';
-import { detect, summarizeObjects, preloadVision, SIZE } from './vision.js';
+import { detect as detectObjects, summarizeObjects, preloadVision, SIZE } from './vision.js';
 import { status, ensureAll, ensureModel, MODELS } from './models.js';
 
 export { status as modelStatus, ensureAll, ensureModel, MODELS, probe, FFMPEG };
+import { screenshot as shot, recordVideo as rec, browserAvailable, chromeProvider, parseActions } from './browser.js';
+export { browserAvailable, chromeProvider, parseActions };
+
+/** Screenshot a page Buddo built (or any URL). opts: { target, size, full, actions, root, provider } */
+export const screenshot = (opts) => shot(opts);
+/** Record a page while doing actions; saves an mp4 and returns its key frames. */
+export const recordVideo = (opts) => rec({ ...opts, watch: (file, o) => watchVideo(file, o) });
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|bmp|gif|tiff?|heic|avif)$/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff?)$/i;
@@ -164,8 +171,9 @@ function describeHearing(h) {
  * Returns { text, images: [base64 jpeg], display, ms }.
  */
 export function watchVideo(file, opts = {}) {
-  const { start = 0, end, frames: count = 12, listen = true, onProgress } = opts;
-  return cached(file, `watch:${start}:${end}:${count}:${listen}`, async () => {
+  const { start = 0, end, frames: count = 12, listen = true, detect: findObjects = true, onProgress } = opts;
+  const detect = findObjects ? detectObjects : async () => [];
+  return cached(file, `watch:${start}:${end}:${count}:${listen}:${findObjects}`, async () => {
     const t0 = performance.now();
     const mark = (label) => process.env.BUDDO_MEDIA_DEBUG && console.error(`  [watch] ${label} @${Math.round(performance.now() - t0)}ms`);
     const meta = await probe(file);
@@ -217,8 +225,8 @@ export function watchVideo(file, opts = {}) {
       const lines = [
         `VIDEO ${path.basename(file)} — ${fmtTime(meta.duration)} long, ${meta.width}×${meta.height} (${portrait ? 'vertical' : 'horizontal'}), ${meta.fps} fps, ${meta.audio ? 'has audio' : 'no audio'}. Watched ${start || e < meta.duration ? range(start, e) : 'all of it'} in ${(ms / 1000).toFixed(1)}s.`,
         `Scene cuts: ${cuts.length ? cuts.slice(0, 30).map(fmtTime).join(', ') : 'none (one continuous shot)'}`,
-        `Key frames (attached as one contact sheet, ${grid.cols}×${grid.rows}, read left→right, top→bottom) with detected objects:`,
-        ...frames.map((f, i) => `  #${i + 1} ${fmtTime(f.t)} — ${summarizeObjects(f.objects)}`),
+        `Key frames (attached as one contact sheet, ${grid.cols}×${grid.rows}, read left→right, top→bottom)${findObjects ? " with detected objects" : ""}:`,
+        ...frames.map((f, i) => `  #${i + 1} ${fmtTime(f.t)}${findObjects ? ` — ${summarizeObjects(f.objects)}` : ''}`),
         ...(hearing ? describeHearing(hearing) : []),
       ];
       return {
@@ -233,7 +241,7 @@ export function watchVideo(file, opts = {}) {
           ms,
           cuts,
           sheet: sheet.toString('base64'),
-          frames: frames.map((f) => ({ t: f.t, objects: summarizeObjects(f.objects) })),
+          frames: frames.map((f) => ({ t: f.t, objects: findObjects ? summarizeObjects(f.objects) : '' })),
           hearing,
         },
       };
@@ -271,7 +279,7 @@ export function viewImage(file, opts = {}) {
     try {
       const jpg = path.join(dir, 'view.jpg');
       const rgb = await grab(file, 0, jpg, { thumbW: 1024, image: true });
-      const objects = await detect(rgb, meta, { threshold: 0.3, onProgress: opts.onProgress });
+      const objects = await detectObjects(rgb, meta, { threshold: 0.3, onProgress: opts.onProgress });
       const img = await fs.readFile(jpg);
       const ms = Math.round(performance.now() - t0);
       const lines = [

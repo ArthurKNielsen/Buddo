@@ -25,6 +25,10 @@ Buddo is an open-source alternative to paid AI coding agents. It explores your c
 | 🔐 **Permission modes** | **Ask** (approve every edit & command), **Auto** (auto-edit, approve commands), **YOLO** (approve all), **Plan** (read-only). `Shift+Tab` cycles. |
 | 🧾 **Diffs + one-click revert** | Every change gets a syntax-highlighted diff. The Changes panel can revert any file — or everything. |
 | 👁️👂 **Watches, hears & sees** | `watch_video`, `listen_audio`, `view_image`: key frames + scene cuts + objects, speech-to-text with timestamps (99 languages), sound recognition and loudness — about a second per clip, fully local. Vision models (e.g. `qwen2.5vl:7b`) see the frames; other models get text descriptions. Paste or drop images into the chat. |
+| 📸 **Sees its own work** | `screenshot` and `record_video`: Buddo opens what it built (desktop + phone sizes), clicks/types through it, and gets a report of console errors, broken images and layout overflow — then fixes what it finds. Uses the desktop app's built-in browser, or your Chrome/Edge. |
+| 🔎 **Web search** | `web_search`, free with no API key: DuckDuckGo → Mojeek → Wikipedia fallback (or your own SearxNG via `BUDDO_SEARXNG`), plus npm package search. |
+| 😎 **Personality that learns you** | Pick a vibe (Friendly, Gen Z, Professional, Hype coach, Teacher, Minimal), name, reply length and emoji. Buddo remembers lasting facts about you (`remember` tool + quiet learning after chats). See, add or delete memories in **Settings → Personality**, `/memory`, `/vibe`. Shared between app, desktop and CLI (`~/.buddo/profile.json`). |
+| ⚡ **Pocket mode (iPhone)** | Tiny in-browser models (0.5B–1B, ~200–700 MB) plus a ~9× shorter "lite" prompt and small context, so it's usable on phones. Auto-selected on mobile. |
 | 🖥️ **Integrated terminal** | Watch commands Buddo runs, or run your own. |
 | 👀 **Live preview** | Building a website? It renders next to the chat as Buddo writes it. |
 | ✅ **Live task list** | For bigger jobs Buddo writes a plan and checks items off as it goes. |

@@ -34,6 +34,11 @@ async function check(res) {
   throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 
+/** Tiny models (≤1B) get Buddo's short "lite" prompt and a small context so they stay fast. */
+export function isTinyModel(id = '') {
+  return /(^|[:\-_/])(0\.5b|360m|135m|0\.6b|1b|1\.1b)\b/i.test(id) || /^(Qwen2\.5-Coder-0\.5B|SmolLM2-360M|Qwen3-0\.6B|Llama-3\.2-1B)/i.test(id);
+}
+
 /** Best guess from the model name when the server can't tell us. */
 export function guessVision(model = '') {
   return /vl\b|vl:|vision|llava|bakllava|gemma3(?!n)|minicpm-v|pixtral|moondream|qwen2\.5vl|qwen3-vl|granite3\.2-vision|mistral-small3\.[12]|llama4|smolvlm/i.test(model);
@@ -190,5 +195,6 @@ export const RECOMMENDED_MODELS = [
   { id: 'deepseek-coder-v2:16b', label: 'DeepSeek Coder V2 16B', size: '8.9 GB', note: 'Fast MoE coder', tag: 'Fast' },
   { id: 'qwen2.5vl:7b', label: 'Qwen 2.5 VL 7B', size: '6.0 GB', note: 'Sees images & video frames 👁', tag: 'Vision' },
   { id: 'gemma3:4b', label: 'Gemma 3 4B', size: '3.3 GB', note: 'Small, fast, sees images 👁', tag: 'Vision' },
+  { id: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder 1.5B', size: '1.0 GB', note: 'Pocket-size, very fast ⚡', tag: 'Fast' },
   { id: 'qwen2.5-coder:3b', label: 'Qwen 2.5 Coder 3B', size: '1.9 GB', note: 'For low-RAM machines', tag: 'Light' },
 ];

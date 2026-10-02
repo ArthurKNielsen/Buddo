@@ -35,3 +35,24 @@ test('watches a video: scene cut, frames, sounds — fast', opts, async () => {
   assert.match(v.text, /IMAGE frame\.png — 640×360/);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+import { browserAvailable, screenshot, recordVideo } from '../src/index.js';
+const hasBrowser = browserAvailable();
+
+test('screenshots its own page, runs actions and reports layout bugs', { skip: hasBrowser ? false : 'no Chrome/Chromium installed' }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-shot-'));
+  await fs.writeFile(path.join(root, 'index.html'), `<!doctype html><title>Counter</title><h1 id="n">0</h1><button onclick="n.textContent=+n.textContent+1">Add one</button><div style="width:900px;height:10px" class="wide"></div><img src="nope.png">`);
+  const s = await screenshot({ target: '', size: 'mobile', root, actions: 'click Add one\nclick Add one' });
+  assert.equal(s.images.length, 1);
+  assert.match(s.text, /Screenshot of index\.html at 390×844/);
+  assert.match(s.text, /clicked <button> "Add one"/);
+  assert.match(s.text, /horizontal overflow/);
+  assert.match(s.text, /div\.wide/);
+  assert.match(s.text, /broken images: nope\.png/);
+  assert.match(s.text, /Visible text: 2/);
+  const r = await recordVideo({ target: 'index.html', root, actions: 'click Add one', seconds: 0.5 });
+  assert.match(r.text, /Saved [\d.]+s video/);
+  assert.ok(r.display.saved.startsWith('.buddo/recordings/'));
+  assert.equal(r.images.length, 1);
+  await fs.rm(root, { recursive: true, force: true });
+});

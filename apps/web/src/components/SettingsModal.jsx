@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, Monitor, Check, Eye } from 'lucide-react';
+import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, Monitor, Check, Eye, Smile } from 'lucide-react';
+import PersonalityPanel from './PersonalityPanel.jsx';
 import SensesPanel from './SensesPanel.jsx';
 import { useStore, DEFAULT_SETTINGS } from '../lib/store.js';
 import { checkEngine } from '../lib/engine.js';
@@ -8,6 +9,7 @@ import Modal from './Modal.jsx';
 import Logo from './Logo.jsx';
 
 const TABS = [
+  { id: 'personality', icon: Smile, label: 'Personality' },
   { id: 'engine', icon: Cpu, label: 'Engine' },
   { id: 'senses', icon: Eye, label: 'Senses' },
   { id: 'appearance', icon: Palette, label: 'Appearance' },
@@ -97,6 +99,22 @@ export default function SettingsModal() {
                 </div>
               )}
               <div className="field">
+                <label>Lite mode (for tiny & phone models)</label>
+                <div className="seg">
+                  {[
+                    ['auto', 'Auto'],
+                    ['on', 'Always'],
+                    ['off', 'Never'],
+                  ].map(([id, l]) => (
+                    <button key={id} className={s.lite === id ? 'on' : ''} onClick={() => setSettings({ lite: id })}>
+                      {s.lite === id && <motion.div layoutId="lite-pill" className="seg-pill" />}
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <span className="hint">A ~9× shorter prompt and smaller context so tiny models answer fast. Auto turns it on for Pocket models.</span>
+              </div>
+              <div className="field">
                 <label>Creativity (temperature) · {s.temperature.toFixed(2)}</label>
                 <input type="range" min={0} max={1} step={0.05} value={s.temperature} onChange={(e) => setSettings({ temperature: +e.target.value })} className="range" />
               </div>
@@ -105,6 +123,7 @@ export default function SettingsModal() {
               </button>
             </>
           )}
+          {tab === 'personality' && <PersonalityPanel />}
           {tab === 'senses' && <SensesPanel />}
           {tab === 'appearance' && (
             <>

@@ -5,6 +5,7 @@ import { analyze, splitThinking } from './parser.js';
 import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
+import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -106,9 +107,11 @@ export async function runAgent({
   context,
   callbacks = {},
   vision = false,
+  profile,
+  lite = false,
 }) {
   const ctx = context || (await gatherContext(workspace));
-  const system = buildSystemPrompt({ workspace, mode, vision, ...ctx });
+  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, ...ctx });
   const alwaysAllowed = new Set();
   let lastSig = '';
   let repeats = 0;
@@ -241,6 +244,7 @@ export async function runAgent({
         workspace,
         onChange: callbacks.onChange,
         onTodos: callbacks.onTodos,
+        onRemember: normalizeProfile(profile).learn ? callbacks.onRemember : undefined,
         onCommand: callbacks.onCommand,
         onCommandData: callbacks.onCommandData,
       });
@@ -256,4 +260,20 @@ export async function runAgent({
 
   onEvent({ type: 'error', error: `Stopped after ${maxSteps} steps. Say "continue" to keep going.` });
   return { messages, status: 'max-steps' };
+}
+
+/**
+ * After a chat, ask the model (quietly, no tools) what new lasting facts it learned about the user.
+ * Returns an array of short facts (possibly empty).
+ */
+export async function learnAboutUser({ provider, model, profile, userTexts, signal, temperature = 0 }) {
+  const text = userTexts.join('\n---\n').slice(-4000);
+  if (text.replace(/\s/g, '').length < 25) return [];
+  const known = normalizeProfile(profile).memories.map((m) => m.text);
+  let out = '';
+  for await (const chunk of provider.stream({ model, messages: [{ role: 'user', content: LEARN_PROMPT(known, text) }], signal, options: { temperature, num_ctx: 4096 } })) {
+    if (chunk.type === 'text') out += chunk.text;
+    if (out.length > 2000) break;
+  }
+  return parseLearned(out.replace(/<think>[\s\S]*?<\/think>/g, ''));
 }

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Cpu, Check, Download, RefreshCw, Sparkles } from 'lucide-react';
 import { RECOMMENDED_MODELS, guessVision } from '@buddo/core';
 import { useStore } from '../lib/store.js';
-import { checkEngine, pullModel, WEBLLM_MODELS, loadWebLLM } from '../lib/engine.js';
+import { checkEngine, pullModel, WEBLLM_MODELS, loadWebLLM, isPocketModel } from '../lib/engine.js';
 import Modal from './Modal.jsx';
 
 const fmtSize = (b) => (b ? (b / 1e9).toFixed(1) + ' GB' : '');
@@ -112,6 +112,7 @@ export default function ModelPicker() {
                 <div className="row" style={{ gap: 6 }}>
                   <span className="mono">{m.label || m.id}</span>
                   {!isWeb && guessVision(m.id) && <span className="vision-badge">👁 vision</span>}
+                  {(m.pocket || isPocketModel(m.id)) && <span className="pocket-badge">⚡ Pocket</span>}
                 </div>
                 <div className="faint">{[m.params, m.quant, typeof m.size === 'number' ? fmtSize(m.size) : m.size, m.note].filter(Boolean).join(' · ')}</div>
               </div>

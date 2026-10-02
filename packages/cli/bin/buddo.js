@@ -9,9 +9,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   runAgent, gatherContext, ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, SLASH_COMMANDS, parseSlash,
-  COMPACT_PROMPT, describeCall, diffLines, diffHunks, diffStats, contextTokens,
+  COMPACT_PROMPT, describeCall, diffLines, diffHunks, diffStats, contextTokens, isTinyModel, learnAboutUser, VIBES,
 } from '@buddo/core';
-import { createNodeWorkspace } from '@buddo/core/node';
+import { createNodeWorkspace, loadProfile, saveProfile, rememberFact } from '@buddo/core/node';
 
 const VERSION = '1.0.0';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -82,6 +82,7 @@ function parseArgs(argv) {
     else if (a === '--no-open') o.noOpen = true;
     else if (a === '-C' || a === '--cwd') o.cwd = next();
     else if (a === '--ctx') o.ctx = Number(next());
+    else if (a === '--lite') o.lite = true;
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
     else o._.push(a);
@@ -107,6 +108,7 @@ ${C.bold('Options')}
   --url <url>                 engine URL (default http://localhost:11434 or http://localhost:1234/v1)
   --mode ask|auto|yolo|plan   permission mode (default ask)
   --ctx <tokens>              context window (default 16384)
+  --lite                      short prompt + small context (auto for tiny models)
   -C, --cwd <dir>             workspace folder
   --port <n>                  port for \`buddo web\` (default 4141)
 `;
@@ -282,6 +284,13 @@ async function cmdChat(initial) {
 
   let mode = args.mode || cfg.mode || 'ask';
   let vision = !!(await provider.modelInfo?.(model).catch(() => null))?.vision;
+  let profile = loadProfile();
+  const isLite = () => !!args.lite || isTinyModel(model);
+  const onRemember = (fact) => {
+    const ok = rememberFact(fact, 'chat');
+    profile = loadProfile();
+    return ok;
+  };
   const ctxBudget = args.ctx || cfg.ctx || 16384;
   let messages = [];
   let projectCtx = await gatherContext(workspace);
@@ -292,7 +301,7 @@ async function cmdChat(initial) {
     messages.push({ role: 'user', content: prompt });
     let out = '';
     await runAgent({
-      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: ctxBudget, context: projectCtx, vision,
+      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(), callbacks: { onRemember },
       onEvent: (e) => {
         if (e.type === 'text') out += e.delta;
         if (e.type === 'tool-start') out = '';
@@ -379,6 +388,33 @@ async function cmdChat(initial) {
         }
         return;
       }
+      if (cmd.action === 'memory') {
+        profile = loadProfile();
+        console.log(C.bold(`\n${profile.name} knows ${profile.memories.length} thing(s) about you`) + C.dim(`  (vibe: ${profile.vibe}, learning ${profile.learn ? 'on' : 'off'})`));
+        profile.memories.forEach((m, i) => console.log(`  ${C.dim(String(i + 1).padStart(2))}  ${m.text}`));
+        console.log(C.dim('\n  Forget one with /memory forget <number>, everything with /memory clear, toggle with /memory off|on\n'));
+        if (/^forget\s+\d+/.test(arg)) {
+          const n = Number(arg.split(/\s+/)[1]) - 1;
+          if (profile.memories[n]) saveProfile({ ...profile, memories: profile.memories.filter((_, i) => i !== n) });
+          console.log(C.green('✓ forgotten'));
+        } else if (arg === 'clear') {
+          saveProfile({ ...profile, memories: [] });
+          console.log(C.green('✓ memory cleared'));
+        } else if (arg === 'off' || arg === 'on') {
+          saveProfile({ ...profile, learn: arg === 'on' });
+          console.log(C.green(`✓ learning ${arg}`));
+        }
+        profile = loadProfile();
+        return;
+      }
+      if (cmd.action === 'vibe') {
+        if (VIBES[arg]) {
+          saveProfile({ ...loadProfile(), vibe: arg });
+          profile = loadProfile();
+          console.log(`Vibe → ${C.violet(VIBES[arg].emoji + ' ' + VIBES[arg].label)}`);
+        } else console.log(Object.entries(VIBES).map(([k, v]) => `  ${C.violet(k.padEnd(8))} ${v.emoji} ${v.label}`).join('\n'));
+        return;
+      }
       if (cmd.action === 'compact') {
         if (!messages.length) return console.log(C.dim('Nothing to compact.'));
         prompt = COMPACT_PROMPT;
@@ -410,7 +446,7 @@ async function cmdChat(initial) {
     const started = Date.now();
     let usage;
     await runAgent({
-      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: ctxBudget, context: projectCtx, vision,
+      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(),
       onEvent: (e) => {
         if (e.type === 'usage') usage = e;
         r.event(e, quiet);
@@ -422,9 +458,16 @@ async function cmdChat(initial) {
         const ans = (await ask(`  ${C.yellow('?')} Allow Buddo to ${label}? ${C.dim('[y]es / [n]o / [a]lways')} › `)).trim().toLowerCase();
         return ans.startsWith('a') ? 'always' : ans === '' || ans.startsWith('y') ? 'allow' : 'deny';
       },
-      callbacks: {},
+      callbacks: { onRemember: (f) => { const ok = onRemember(f); if (ok) r.note(`🧠 Remembered: ${f}`); return ok; } },
     });
     r.end();
+    // Quietly learn about the user from what they said (skipped for tiny models).
+    if (!quiet && profile.learn && !isLite() && !ctrl.signal.aborted) {
+      learnAboutUser({ provider, model, profile, userTexts: [prompt.split('\n\n<file')[0]] })
+        .then((facts) => facts.filter((f) => rememberFact(f, 'auto')))
+        .then((added) => { profile = loadProfile(); if (added.length) console.log(C.dim(`  🧠 learned: ${added.join(' · ')}`)); })
+        .catch(() => {});
+    }
     running = null;
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     const tps = usage?.tps ? ` · ${usage.tps.toFixed(0)} tok/s` : '';
@@ -571,9 +614,13 @@ function renderer() {
   };
 
   startSpinner();
-  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos', watch_video: 'Watch', listen_audio: 'Listen', view_image: 'Look' };
+  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos', watch_video: 'Watch', listen_audio: 'Listen', view_image: 'Look', web_search: 'Search', screenshot: 'Screenshot', record_video: 'Record', remember: 'Remember' };
 
   return {
+    note(text) {
+      stopSpinner();
+      console.log(`  ${C.violet(text)}`);
+    },
     pauseSpinner: stopSpinner,
     event(e, quiet) {
       switch (e.type) {
@@ -614,6 +661,16 @@ function renderer() {
             d.todos.forEach((t, i) =>
               console.log(`  ${C.dim(i === 0 ? '⎿' : ' ')} ${t.status === 'done' ? C.green('☒ ' + C.dim(t.text)) : t.status === 'active' ? C.yellow('◐ ' + C.bold(t.text)) : '☐ ' + t.text}`),
             );
+          } else if (d?.type === 'websearch') {
+            console.log(`  ${C.dim('⎿')} ${d.results.length} results${d.engine ? C.dim(` via ${d.engine}`) : ''}`);
+            d.results.slice(0, 5).forEach((x) => console.log(`     ${C.cyan(x.title.slice(0, 70))} ${C.dim(x.url.slice(0, 60))}`));
+          } else if (d?.type === 'memory') {
+            console.log(`  ${C.dim('⎿')} 🧠 ${d.fact}`);
+          } else if (d?.type === 'media' && (d.kind === 'screenshot' || d.kind === 'recording')) {
+            const r = d.report || {};
+            const issues = [r.overflowX && `overflow ${r.overflowX}px`, r.brokenImages?.length && `${r.brokenImages.length} broken image(s)`, d.logs?.some((l) => l.type === 'error') && 'console errors'].filter(Boolean);
+            console.log(`  ${C.dim('⎿')} ${d.kind === 'screenshot' ? `Screenshot ${d.size.join('×')}` : `Recorded ${d.saved}`} in ${C.green((d.ms / 1000).toFixed(1) + 's')} · ${issues.length ? C.yellow('⚠ ' + issues.join(', ')) : C.green('✓ no issues')}`);
+            (d.steps || []).slice(0, 6).forEach((s) => console.log(`     ${C.gray(s)}`));
           } else if (d?.type === 'media') {
             const secs = C.green(`${(d.ms / 1000).toFixed(1)}s`);
             if (d.kind === 'video') {

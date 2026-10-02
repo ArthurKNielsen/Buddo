@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { IGNORED_DIRS, matchGlob, searchFiles, htmlToText, isTextLike } from './tree.js';
+import { webSearch } from './websearch.js';
 
 const MAX_FILES = 20000;
 
@@ -19,7 +20,7 @@ export async function loadMedia() {
   return mediaLib;
 }
 
-export function createNodeWorkspace(rootDir) {
+export function createNodeWorkspace(rootDir, { browserProvider, searxng = process.env.BUDDO_SEARXNG } = {}) {
   const root = path.resolve(rootDir);
 
   const abs = (p = '.') => {
@@ -126,7 +127,10 @@ export function createNodeWorkspace(rootDir) {
       watch_video: async ({ path: p, ...o }) => (await loadMedia()).watchVideo(abs(p), o),
       listen_audio: async ({ path: p, ...o }) => (await loadMedia()).listenAudio(abs(p), o),
       view_image: async ({ path: p }) => (await loadMedia()).viewImage(abs(p)),
+      screenshot: async (o) => (await loadMedia()).screenshot({ ...o, root, provider: browserProvider }),
+      record_video: async (o) => (await loadMedia()).recordVideo({ ...o, root, provider: browserProvider }),
     },
+    webSearch: (q, o = {}) => webSearch(q, { searxng, ...o }),
     async fetchUrl(url) {
       if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs are supported.');
       const r = await fetch(url, { headers: { 'user-agent': 'Buddo/1.0 (+local agent)' }, signal: AbortSignal.timeout(20000) });
@@ -137,3 +141,5 @@ export function createNodeWorkspace(rootDir) {
     },
   };
 }
+
+export { loadProfile, saveProfile, rememberFact, PROFILE_FILE } from './profile-store.js';

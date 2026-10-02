@@ -28,7 +28,7 @@ const skip = (src) =>
   (/onnxruntime-node[\\/]bin[\\/]napi-v\d+[\\/]/.test(src) && !new RegExp(`napi-v\\d+[\\\\/]${osName}`).test(src) && /napi-v\d+[\\/][a-z0-9]+/.test(src)) ||
   (/onnxruntime-web[\\/]dist[\\/]/.test(src) && !/ort\.node\.min\.mjs$|ort-wasm-simd-threaded\.(mjs|wasm)$/.test(src)) ||
   /\.map$/.test(src);
-for (const mod of ['sherpa-onnx-node', `sherpa-onnx-${plat}`, 'onnxruntime-node', 'onnxruntime-common', 'onnxruntime-web', 'ffmpeg-static']) {
+for (const mod of ['sherpa-onnx-node', `sherpa-onnx-${plat}`, 'onnxruntime-node', 'onnxruntime-common', 'onnxruntime-web', 'ffmpeg-static', 'playwright-core']) {
   const from = path.join(repo, 'node_modules', mod);
   if (fs.existsSync(from)) fs.cpSync(from, path.join(app, 'node_modules', mod), { recursive: true, dereference: true, filter: (src) => !skip(src) });
   else console.warn(`  (skipping ${mod}: not installed)`);

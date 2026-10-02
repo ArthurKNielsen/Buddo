@@ -1,6 +1,6 @@
-import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet } from '@buddo/core';
+import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -50,6 +50,16 @@ export async function submit(input, attachments = []) {
       }
       case 'compact':
         return compact();
+      case 'memory':
+        return st.setUI({ settings: true, settingsTab: 'personality' });
+      case 'vibe': {
+        const v = arg.toLowerCase();
+        if (VIBES[v]) {
+          st.setProfile({ vibe: v });
+          return st.toast(`Vibe: ${VIBES[v].emoji} ${VIBES[v].label}`, 'success');
+        }
+        return st.setUI({ settings: true, settingsTab: 'personality' });
+      }
     }
     if (cmd.prompt) {
       if (cmd.arg && !arg && ['plan', 'fix', 'scaffold', 'watch'].includes(cmd.name)) return st.toast(`Usage: /${cmd.name} <${cmd.arg}>`);
@@ -75,6 +85,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   for (const a of attachments) if (!a.image) full += `\n\n<file path="${a.name}">\n${a.content.slice(0, 60000)}\n</file>`;
   const pics = attachments.filter((a) => a.image);
   const vision = st.vision;
+  const lite = liteMode(settings);
   for (const a of pics) {
     if (vision) full += `\n\n[Attached image: ${a.name}]`;
     else if (st.server) {
@@ -135,8 +146,10 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     messages: history,
     mode: mode || settings.mode,
     signal: ctrl.signal,
-    contextBudget: settings.engine === 'webllm' ? 8192 : settings.ctx,
+    contextBudget: lite ? 4096 : settings.engine === 'webllm' ? 8192 : settings.ctx,
     vision,
+    lite,
+    profile: st.profile,
     temperature: settings.temperature,
     context,
     onEvent: (e) => {
@@ -201,6 +214,11 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
       });
     },
     callbacks: {
+      onRemember: (fact) => {
+        const ok = S().remember(fact, 'chat');
+        if (ok) S().toast(`🧠 Remembered: ${fact}`, 'success');
+        return ok;
+      },
       onChange: ({ path, before, after }) =>
         S().patchSession(sid, (s) => {
           const existing = s.changes.find((c) => c.path === path && !c.reverted);
@@ -222,6 +240,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   flush();
   S().patchSession(sid, { history: result.messages });
   useStore.setState({ running: null, permission: null });
+  if (result.status === 'done' && !hidden) autoLearn(sid, { lite, settings });
   if (result.status === 'error' && /fetch|reach|ECONNREFUSED|Failed/i.test(draft.error || '')) checkEngine();
 }
 
@@ -327,4 +346,20 @@ export function retryLast() {
   }
   S().patchSession(s.id, { items: s.items.slice(0, idx), history: hIdx >= 0 ? s.history.slice(0, hIdx) : s.history });
   submit(lastUser.text);
+}
+
+/** Quietly ask the model what it learned about the user from their recent messages. */
+async function autoLearn(sid, { lite, settings }) {
+  const st = S();
+  if (!st.profile.learn || lite || st.running) return;
+  const session = st.sessions.find((x) => x.id === sid);
+  if (!session) return;
+  const userTexts = session.items.slice(session.learnedUpTo || 0).filter((i) => i.type === 'user').map((i) => i.text);
+  S().patchSession(sid, { learnedUpTo: session.items.length });
+  if (!userTexts.length) return;
+  try {
+    const facts = await learnAboutUser({ provider: getProvider(settings), model: currentModel(settings), profile: st.profile, userTexts });
+    const added = facts.filter((f) => S().remember(f, 'auto'));
+    if (added.length) S().toast(`🧠 Buddo learned ${added.length === 1 ? `: ${added[0]}` : `${added.length} new things about you`}`, 'success');
+  } catch {}
 }

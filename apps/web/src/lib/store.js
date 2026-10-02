@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { DEFAULT_PROFILE, normalizeProfile, addMemory } from '@buddo/core';
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -9,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   openaiUrl: 'http://localhost:1234/v1',
   model: '',
   webllmModel: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC',
+  lite: 'auto', // auto | on | off — short prompt + small context for tiny models
   mode: 'ask',
   ctx: 16384,
   temperature: 0.2,
@@ -90,6 +92,7 @@ export const useStore = create(
   persist(
     (set, get) => ({
       settings: DEFAULT_SETTINGS,
+      profile: DEFAULT_PROFILE,
       sessions: [],
       activeId: null,
 
@@ -119,6 +122,15 @@ export const useStore = create(
       vision: false,
 
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
+      setProfile: (patch) => set((s) => ({ profile: normalizeProfile({ ...s.profile, ...(typeof patch === 'function' ? patch(s.profile) : patch) }) })),
+      /** Returns false if Buddo already knew it. */
+      remember: (text, source = 'chat') => {
+        const next = addMemory(get().profile, text, source);
+        if (!next) return false;
+        set({ profile: next });
+        return true;
+      },
+      forget: (id) => set((s) => ({ profile: { ...s.profile, memories: s.profile.memories.filter((m) => m.id !== id) } })),
       setUI: (patch) => set((s) => ({ ui: { ...s.ui, ...patch } })),
       toggleUI: (k) => set((s) => ({ ui: { ...s.ui, [k]: !s.ui[k] } })),
       openPanel: (tab) => set((s) => ({ ui: { ...s.ui, panel: true, tab } })),
@@ -167,6 +179,7 @@ export const useStore = create(
       storage: createJSONStorage(() => safeStorage),
       partialize: (s) => ({
         settings: s.settings,
+        profile: s.profile,
         activeId: s.activeId,
         sessions: s.sessions.slice(0, 40).map(slimSession),
         ui: { sidebar: s.ui.sidebar, tab: s.ui.tab },
@@ -175,6 +188,7 @@ export const useStore = create(
         ...current,
         ...persisted,
         settings: { ...DEFAULT_SETTINGS, ...(persisted?.settings || {}) },
+        profile: normalizeProfile(persisted?.profile),
         ui: { ...current.ui, ...(persisted?.ui || {}) },
         // Any assistant message left "streaming" from a closed tab is finished.
         sessions: (persisted?.sessions || []).map((s) => ({

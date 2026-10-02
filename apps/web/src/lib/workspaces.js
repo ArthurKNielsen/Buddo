@@ -3,7 +3,10 @@
 //  - folder:  a real folder opened in the browser via the File System Access API (files only)
 //  - sandbox: an in-browser virtual project stored in localStorage (files only)
 
-import { IGNORED_DIRS, matchGlob, searchFiles, htmlToText } from '@buddo/core';
+import { IGNORED_DIRS, matchGlob, searchFiles, htmlToText, webSearch } from '@buddo/core';
+
+// Browsers can't reach most search engines (CORS), so pure-browser mode searches Wikipedia or npm.
+const browserSearch = (q, o = {}) => webSearch(q, { ...o, engines: ['wikipedia'] });
 
 const H = { 'x-buddo': '1' };
 
@@ -69,7 +72,10 @@ export function serverWorkspace(info) {
       watch_video: (args) => api('/api/media/watch_video', { method: 'POST', body: args }),
       listen_audio: (args) => api('/api/media/listen_audio', { method: 'POST', body: args }),
       view_image: (args) => api('/api/media/view_image', { method: 'POST', body: args }),
+      screenshot: (args) => api('/api/media/screenshot', { method: 'POST', body: args }),
+      record_video: (args) => api('/api/media/record_video', { method: 'POST', body: args }),
     },
+    webSearch: (query, o = {}) => api('/api/websearch', { method: 'POST', body: { query, ...o } }),
     rawUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}&token=${info.rawToken}`,
     async run(command, { cwd, timeout, onData, signal } = {}) {
       const r = await fetch('/api/exec', {
@@ -172,6 +178,7 @@ export function browserFolderWorkspace(dir) {
     },
     glob: async (pattern) => matchGlob(await files(), pattern),
     fetchUrl: fetchText,
+    webSearch: browserSearch,
     run: async () => ({ code: 127, stdout: '', stderr: 'Commands are not available in browser mode.' }),
   };
 }
@@ -245,6 +252,7 @@ export function sandboxWorkspace(name = 'sandbox') {
     },
     glob: async (pattern) => matchGlob(Object.keys(files), pattern),
     fetchUrl: fetchText,
+    webSearch: browserSearch,
     run: async () => ({ code: 127, stdout: '', stderr: 'Commands are not available in the browser sandbox.' }),
   };
 }

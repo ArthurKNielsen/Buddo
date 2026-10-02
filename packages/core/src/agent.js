@@ -8,12 +8,27 @@ import { formatTree } from './tree.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
+// Vision models spend roughly this many tokens per attached image.
+const IMAGE_TOKENS = 1000;
+
 export function contextTokens(messages) {
-  return messages.reduce((n, m) => n + estimateTokens(m.content) + 4, 0);
+  return messages.reduce((n, m) => n + estimateTokens(m.content) + (m.images?.length || 0) * IMAGE_TOKENS + 4, 0);
+}
+
+/** Keep images only on the most recent image-bearing messages (they are expensive). */
+function trimImages(messages, keep = 2) {
+  let seen = 0;
+  const out = [...messages];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (!out[i].images?.length) continue;
+    if (++seen > keep) out[i] = { ...out[i], images: undefined, content: out[i].content + '\n[older image removed to save context]' };
+  }
+  return out;
 }
 
 /** Shrink old tool results when the conversation gets close to the context budget. */
 export function compactForModel(messages, budget) {
+  messages = trimImages(messages);
   const total = contextTokens(messages);
   if (total < budget * 0.7) return messages;
   const keepTail = 6;
@@ -90,9 +105,10 @@ export async function runAgent({
   temperature = 0.2,
   context,
   callbacks = {},
+  vision = false,
 }) {
   const ctx = context || (await gatherContext(workspace));
-  const system = buildSystemPrompt({ workspace, mode, ...ctx });
+  const system = buildSystemPrompt({ workspace, mode, vision, ...ctx });
   const alwaysAllowed = new Set();
   let lastSig = '';
   let repeats = 0;
@@ -110,7 +126,9 @@ export async function runAgent({
     let stopForTool = false;
     let announced = false;
 
-    const wire = [{ role: 'system', content: system }, ...compactForModel(messages, contextBudget)];
+    const wire = [{ role: 'system', content: system }, ...compactForModel(messages, contextBudget)].map((m) =>
+      vision || !m.images ? m : { role: m.role, content: m.content },
+    );
 
     try {
       for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: { num_ctx: contextBudget, temperature } })) {
@@ -230,7 +248,9 @@ export async function runAgent({
 
     let output = result.output;
     if (repeats >= 2) output += '\n\nNote: you have made this exact call several times. Do something different or finish.';
-    messages.push({ role: 'user', content: `<tool_result name="${call.name}">\n${output}\n</tool_result>` });
+    const images = result.images?.length ? result.images : undefined;
+    if (images && !vision) output += '\n(Your current model can\'t see the attached image — use the text description above.)';
+    messages.push({ role: 'user', content: `<tool_result name="${call.name}">\n${output}\n</tool_result>`, ...(images && vision ? { images } : {}) });
     onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
   }
 

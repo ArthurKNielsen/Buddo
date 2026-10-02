@@ -65,6 +65,12 @@ export function serverWorkspace(info) {
     search: async (pattern, opts = {}) => (await api('/api/fs/search', { method: 'POST', body: { pattern, ...opts } })).hits,
     glob: async (pattern) => (await api('/api/fs/glob', { method: 'POST', body: { pattern } })).files,
     fetchUrl: async (url) => (await api('/api/fetch', { method: 'POST', body: { url } })).text,
+    media: {
+      watch_video: (args) => api('/api/media/watch_video', { method: 'POST', body: args }),
+      listen_audio: (args) => api('/api/media/listen_audio', { method: 'POST', body: args }),
+      view_image: (args) => api('/api/media/view_image', { method: 'POST', body: args }),
+    },
+    rawUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}&token=${info.rawToken}`,
     async run(command, { cwd, timeout, onData, signal } = {}) {
       const r = await fetch('/api/exec', {
         method: 'POST',

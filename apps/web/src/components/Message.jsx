@@ -156,6 +156,13 @@ function Message({ item, sessionId, last }) {
     return (
       <motion.div className="msg user" {...enter}>
         <div className="user-bubble">
+          {item.images?.length > 0 && (
+            <div className="user-images">
+              {item.images.map((src, i) => (
+                <img key={i} src={src} alt="attachment" />
+              ))}
+            </div>
+          )}
           <div className="user-text">{item.text}</div>
           {item.attachments?.length > 0 && (
             <div className="user-attach">

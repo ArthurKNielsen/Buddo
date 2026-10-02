@@ -3,9 +3,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { IGNORED_DIRS, matchGlob, searchFiles, htmlToText } from './tree.js';
+import { IGNORED_DIRS, matchGlob, searchFiles, htmlToText, isTextLike } from './tree.js';
 
 const MAX_FILES = 20000;
+
+// Senses (video / audio / image) live in the optional @buddo/media package.
+let mediaLib;
+export async function loadMedia() {
+  if (!mediaLib) {
+    mediaLib = import('@buddo/media').catch((e) => {
+      mediaLib = null;
+      throw new Error(`Media support isn't installed (${e.message}). Run \`npm install\` in the Buddo folder.`);
+    });
+  }
+  return mediaLib;
+}
 
 export function createNodeWorkspace(rootDir) {
   const root = path.resolve(rootDir);
@@ -58,6 +70,7 @@ export function createNodeWorkspace(rootDir) {
       const st = await fs.stat(full).catch(() => null);
       if (!st) throw new Error(`File not found: ${p}`);
       if (st.isDirectory()) throw new Error(`${p} is a directory — use list_dir.`);
+      if (!isTextLike(p)) throw new Error(`${p} is a binary file. For media use watch_video, listen_audio or view_image.`);
       if (st.size > 5_000_000) throw new Error(`${p} is too large to read (${(st.size / 1e6).toFixed(1)} MB).`);
       return fs.readFile(full, 'utf8');
     },
@@ -108,6 +121,11 @@ export function createNodeWorkspace(rootDir) {
           resolve({ code: code ?? 1, stdout, stderr, timedOut });
         });
       });
+    },
+    media: {
+      watch_video: async ({ path: p, ...o }) => (await loadMedia()).watchVideo(abs(p), o),
+      listen_audio: async ({ path: p, ...o }) => (await loadMedia()).listenAudio(abs(p), o),
+      view_image: async ({ path: p }) => (await loadMedia()).viewImage(abs(p)),
     },
     async fetchUrl(url) {
       if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs are supported.');

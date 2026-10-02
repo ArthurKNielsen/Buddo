@@ -1,13 +1,20 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet } from '@buddo/core';
 import { useStore, uid } from './store.js';
 import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine } from './engine.js';
+import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
+
+const MEDIA_EXT = /\.(mp4|mov|webm|mkv|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus|png|jpe?g|gif|webp|bmp|heic|avif)$/i;
 
 async function expandMentions(text, ws) {
   const mentions = [...new Set([...text.matchAll(/(?:^|\s)@([\w./-]+)/g)].map((m) => m[1]))];
   let extra = '';
   for (const f of mentions.slice(0, 10)) {
+    if (MEDIA_EXT.test(f)) {
+      extra += `\n\n(${f} is a media file — use watch_video, listen_audio or view_image to perceive it.)`;
+      continue;
+    }
     try {
       const c = await ws.read(f);
       extra += `\n\n<file path="${f}">\n${c.slice(0, 40000)}\n</file>`;
@@ -45,7 +52,7 @@ export async function submit(input, attachments = []) {
         return compact();
     }
     if (cmd.prompt) {
-      if (cmd.arg && !arg && ['plan', 'fix', 'scaffold'].includes(cmd.name)) return st.toast(`Usage: /${cmd.name} <${cmd.arg}>`);
+      if (cmd.arg && !arg && ['plan', 'fix', 'scaffold', 'watch'].includes(cmd.name)) return st.toast(`Usage: /${cmd.name} <${cmd.arg}>`);
       return send(cmd.prompt(arg), { display: text, mode: cmd.mode });
     }
   }
@@ -65,16 +72,39 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   }
 
   let full = await expandMentions(prompt, ws);
-  for (const a of attachments) full += `\n\n<file path="${a.name}">\n${a.content.slice(0, 60000)}\n</file>`;
+  for (const a of attachments) if (!a.image) full += `\n\n<file path="${a.name}">\n${a.content.slice(0, 60000)}\n</file>`;
+  const pics = attachments.filter((a) => a.image);
+  const vision = st.vision;
+  for (const a of pics) {
+    if (vision) full += `\n\n[Attached image: ${a.name}]`;
+    else if (st.server) {
+      try {
+        const d = await api('/api/media/describe', { method: 'POST', body: { name: a.name, data: a.image } });
+        full += `\n\n[Attached image: ${a.name} — your model can't see images, so here is what Buddo detected]\n${d.text}`;
+      } catch {
+        full += `\n\n[Attached image: ${a.name} — could not be analyzed]`;
+      }
+    } else full += `\n\n[Attached image: ${a.name} — your current model can't see images. Suggest a vision model like qwen2.5vl.]`;
+  }
 
-  const userItem = { id: uid(), type: 'user', text: display || prompt, attachments: attachments.map((a) => a.name), at: Date.now() };
+  const userItem = {
+    id: uid(),
+    type: 'user',
+    text: display || prompt,
+    attachments: attachments.filter((a) => !a.image).map((a) => a.name),
+    images: pics.map((a) => `data:${a.mime || 'image/jpeg'};base64,${a.image}`),
+    at: Date.now(),
+  };
   const draft = { id: uid(), type: 'assistant', parts: [], status: 'streaming', startedAt: Date.now(), model, mode: mode || settings.mode };
   st.patchSession(sid, (s) => ({
     items: hidden ? [...s.items, draft] : [...s.items, userItem, draft],
     title: s.title === 'New chat' && !hidden ? (display || prompt).replace(/\s+/g, ' ').slice(0, 48) : s.title,
   }));
 
-  const history = [...(S().sessions.find((x) => x.id === sid)?.history || []), { role: 'user', content: full }];
+  const history = [
+    ...(S().sessions.find((x) => x.id === sid)?.history || []),
+    { role: 'user', content: full, ...(vision && pics.length ? { images: pics.map((a) => a.image) } : {}) },
+  ];
   const ctrl = new AbortController();
   useStore.setState({ running: { sessionId: sid, ctrl } });
 
@@ -106,6 +136,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     mode: mode || settings.mode,
     signal: ctrl.signal,
     contextBudget: settings.engine === 'webllm' ? 8192 : settings.ctx,
+    vision,
     temperature: settings.temperature,
     context,
     onEvent: (e) => {

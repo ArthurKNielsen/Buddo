@@ -105,6 +105,19 @@ export function getProvider(settings = useStore.getState().settings) {
   return ollamaProvider(server ? proxy(settings.ollamaUrl) : { baseUrl: settings.ollamaUrl });
 }
 
+/** Ask the engine whether the current model can see images. */
+export async function checkVision() {
+  const { settings } = useStore.getState();
+  const model = currentModel(settings);
+  if (!model || settings.engine === 'webllm') return useStore.setState({ vision: false });
+  try {
+    const info = await getProvider(settings).modelInfo?.(model);
+    if (currentModel(useStore.getState().settings) === model) useStore.setState({ vision: !!info?.vision });
+  } catch {
+    useStore.setState({ vision: false });
+  }
+}
+
 export function currentModel(settings = useStore.getState().settings) {
   return settings.engine === 'webllm' ? settings.webllmModel : settings.model;
 }
@@ -124,6 +137,7 @@ export async function checkEngine() {
       setSettings({ model: pick.id });
     }
     useStore.setState({ engine: { status: models.length ? 'ok' : 'empty', models, version: v?.version || '', error: '' } });
+    checkVision();
     return true;
   } catch (e) {
     useStore.setState({ engine: { status: 'down', models: [], version: '', error: e.message } });

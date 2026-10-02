@@ -281,6 +281,7 @@ async function cmdChat(initial) {
   }
 
   let mode = args.mode || cfg.mode || 'ask';
+  let vision = !!(await provider.modelInfo?.(model).catch(() => null))?.vision;
   const ctxBudget = args.ctx || cfg.ctx || 16384;
   let messages = [];
   let projectCtx = await gatherContext(workspace);
@@ -291,7 +292,7 @@ async function cmdChat(initial) {
     messages.push({ role: 'user', content: prompt });
     let out = '';
     await runAgent({
-      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: ctxBudget, context: projectCtx,
+      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: ctxBudget, context: projectCtx, vision,
       onEvent: (e) => {
         if (e.type === 'text') out += e.delta;
         if (e.type === 'tool-start') out = '';
@@ -306,7 +307,7 @@ async function cmdChat(initial) {
   // Banner
   console.log('\n' + LOGO.map((l) => '  ' + gradient(l)).join('\n'));
   console.log(
-    `\n  ${C.dim('model')} ${C.cyan(model)}  ${C.dim('mode')} ${modeLabel(mode)}  ${C.dim('folder')} ${C.bold(workspace.name)}${projectCtx.memory ? C.dim('  · BUDDO.md loaded') : ''}`,
+    `\n  ${C.dim('model')} ${C.cyan(model)}${vision ? C.dim(' 👁') : ''}  ${C.dim('mode')} ${modeLabel(mode)}  ${C.dim('folder')} ${C.bold(workspace.name)}${projectCtx.memory ? C.dim('  · BUDDO.md loaded') : ''}`,
   );
   console.log(C.dim(`  /help for commands · Ctrl+C to stop a response · /exit to quit\n`));
 
@@ -362,6 +363,7 @@ async function cmdChat(initial) {
           model = arg;
           cfg.model = arg;
           saveConfig(cfg);
+          vision = !!(await provider.modelInfo?.(model).catch(() => null))?.vision;
           console.log(`Model → ${C.cyan(model)}`);
           return;
         }
@@ -372,6 +374,7 @@ async function cmdChat(initial) {
           model = m.id;
           cfg.model = model;
           saveConfig(cfg);
+          vision = !!(await provider.modelInfo?.(model).catch(() => null))?.vision;
           console.log(`Model → ${C.cyan(model)}`);
         }
         return;
@@ -386,7 +389,7 @@ async function cmdChat(initial) {
         return;
       }
       if (cmd.prompt) {
-        if (cmd.arg && !arg && ['plan', 'fix', 'scaffold'].includes(cmd.name)) {
+        if (cmd.arg && !arg && ['plan', 'fix', 'scaffold', 'watch'].includes(cmd.name)) {
           console.log(C.dim(`Usage: /${cmd.name} <${cmd.arg}>`));
           return;
         }
@@ -407,7 +410,7 @@ async function cmdChat(initial) {
     const started = Date.now();
     let usage;
     await runAgent({
-      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: ctxBudget, context: projectCtx,
+      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: ctxBudget, context: projectCtx, vision,
       onEvent: (e) => {
         if (e.type === 'usage') usage = e;
         r.event(e, quiet);
@@ -568,7 +571,7 @@ function renderer() {
   };
 
   startSpinner();
-  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos' };
+  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos', watch_video: 'Watch', listen_audio: 'Listen', view_image: 'Look' };
 
   return {
     pauseSpinner: stopSpinner,
@@ -611,6 +614,16 @@ function renderer() {
             d.todos.forEach((t, i) =>
               console.log(`  ${C.dim(i === 0 ? '⎿' : ' ')} ${t.status === 'done' ? C.green('☒ ' + C.dim(t.text)) : t.status === 'active' ? C.yellow('◐ ' + C.bold(t.text)) : '☐ ' + t.text}`),
             );
+          } else if (d?.type === 'media') {
+            const secs = C.green(`${(d.ms / 1000).toFixed(1)}s`);
+            if (d.kind === 'video') {
+              console.log(`  ${C.dim('⎿')} Watched ${C.bold(d.frames.length)} frames in ${secs}${d.cuts.length ? C.dim(` · cuts at ${d.cuts.map((t) => t.toFixed(1) + 's').join(', ')}`) : ''}`);
+              d.frames.slice(0, 8).forEach((f) => console.log(`     ${C.violet(f.t.toFixed(1).padStart(5) + 's')} ${C.gray(f.objects)}`));
+            } else if (d.kind === 'image') console.log(`  ${C.dim('⎿')} Looked in ${secs}: ${d.objects.map((o) => o.label).join(', ') || 'no common objects'}`);
+            else console.log(`  ${C.dim('⎿')} Listened in ${secs}`);
+            const h = d.hearing;
+            if (h?.speech?.segments.length) h.speech.segments.slice(0, 6).forEach((s) => console.log(`     ${C.cyan(s.start.toFixed(1).padStart(5) + 's')} ${C.gray('“' + s.text + '”')}`));
+            if (h?.sounds?.overall.length) console.log(`     ${C.dim('sounds:')} ${h.sounds.overall.slice(0, 5).map((s) => `${s.label} ${Math.round(s.prob * 100)}%`).join(', ')}`);
           } else if (d?.type === 'file') console.log(`  ${C.dim('⎿')} Read ${C.bold(d.end - d.start + 1)} lines`);
           else if (d?.type === 'search') console.log(`  ${C.dim('⎿')} Found ${C.bold(d.hits.length)} matches`);
           else if (d?.type === 'files') console.log(`  ${C.dim('⎿')} Found ${C.bold(d.files.length)} files`);

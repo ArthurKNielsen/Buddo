@@ -7,9 +7,10 @@ const MODE_TEXT = {
   plan: 'PLAN MODE (read-only): you may only use read tools (list_dir, read_file, search, glob, fetch_url, todo). Investigate, then reply with a clear numbered implementation plan. Do NOT write files or run commands.',
 };
 
-export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', memory = '', date = new Date(), extra = '' } = {}) {
+export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', memory = '', date = new Date(), extra = '', vision = false } = {}) {
   const exec = workspace?.capabilities?.exec;
-  const tools = TOOLS.filter((t) => exec || t.name !== 'run_command')
+  const media = !!workspace?.media;
+  const tools = TOOLS.filter((t) => (exec || t.name !== 'run_command') && (media || !t.media))
     .map((t) => `### ${t.name}\n${t.desc}\nParams: ${t.params.map((p) => `<${p}>`).join(' ')}\n${t.example}`)
     .join('\n\n');
 
@@ -37,11 +38,13 @@ ${tools}
 5. If a tool fails, read the error, adjust and try a different approach — do not repeat the same failing call.
 6. If the request is ambiguous or risky (deleting data, force-pushing), ask the user first.
 7. Answer simple questions directly without tools.
-8. Final answers: short and skimmable markdown — what you changed (with file paths) and anything the user must do next. Use fenced code blocks with a language for code.
+8. Media: use watch_video / listen_audio / view_image whenever the user mentions a video, audio or image file — never guess what is in a media file. Cite timestamps (m:ss) when talking about videos and audio.
+9. Final answers: short and skimmable markdown — what you changed (with file paths) and anything the user must do next. Use fenced code blocks with a language for code.
 
 # Environment
 - Workspace: ${workspace?.name || 'project'}${workspace?.kind ? ` (${workspace.kind})` : ''}
 - Shell commands: ${exec ? 'available' : 'NOT available'}
+- Senses: ${media ? 'you can watch videos, hear audio and look at image files with the media tools' : 'media tools unavailable here (browser mode)'}${vision ? '. You can SEE images: frames and pictures are attached to messages — look closely and describe what is actually there' : '. Your current model cannot see images directly, so rely on the text descriptions (detected objects, transcripts, sounds) the tools give you'}
 - Date: ${date.toISOString().slice(0, 10)}
 - Mode: ${MODE_TEXT[mode] || MODE_TEXT.ask}
 ${tree ? `\n# Project files (top levels)\n${tree}\n` : ''}${memory ? `\n# Project memory (BUDDO.md — instructions from the user, follow them)\n${memory}\n` : ''}${extra ? `\n${extra}\n` : ''}`;

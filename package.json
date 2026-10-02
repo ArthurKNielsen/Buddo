@@ -2,10 +2,11 @@
   "name": "buddo",
   "version": "1.0.0",
   "private": true,
-  "description": "Buddo — a free, local-first AI coding agent. No API keys.",
+  "description": "Buddo \u2014 a free, local-first AI coding agent. No API keys.",
   "type": "module",
   "workspaces": [
     "packages/core",
+    "packages/media",
     "packages/server",
     "packages/cli",
     "apps/web"
@@ -17,7 +18,7 @@
     "cli": "node packages/cli/bin/buddo.js",
     "link": "cd packages/cli && npm link",
     "desktop": "cd apps/desktop && npm install && npm start",
-    "test": "node --test packages/core/test/*.test.js"
+    "test": "node --test packages/core/test/*.test.js packages/media/test/*.test.js"
   },
   "engines": {
     "node": ">=18.17"

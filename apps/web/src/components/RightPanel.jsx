@@ -80,6 +80,9 @@ function FilesTab() {
   const changed = useMemo(() => new Set((session?.changes || []).filter((c) => !c.reverted).map((c) => c.path)), [session?.changes]);
 
   const openFile = async (path) => {
+    const kind = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(path) ? 'image' : /\.(mp4|mov|webm|m4v|mkv)$/i.test(path) ? 'video' : /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(path) ? 'audio' : null;
+    const ws = getWorkspace();
+    if (kind) return setFile({ path, kind, url: ws.rawUrl?.(path), canSense: !!ws.media });
     try {
       setFile({ path, content: await getWorkspace().read(path) });
     } catch (e) {
@@ -121,7 +124,37 @@ function FilesTab() {
           </button>
         </div>
         <div className="pane-scroll">
-          <CodeView content={file.content} path={file.path} />
+          {file.kind ? (
+            <div className="file-preview">
+              {!file.url ? (
+                <div className="faint">Preview needs the desktop app or local mode.</div>
+              ) : file.kind === 'image' ? (
+                <img src={file.url} alt={file.path} />
+              ) : file.kind === 'video' ? (
+                <video src={file.url} controls playsInline />
+              ) : (
+                <audio src={file.url} controls />
+              )}
+              {file.canSense && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() =>
+                    submit(
+                      file.kind === 'image'
+                        ? `Look at @${file.path} and describe it in detail.`
+                        : file.kind === 'video'
+                          ? `Watch @${file.path} and tell me what happens — what you see and what you hear, with timestamps.`
+                          : `Listen to @${file.path}: transcribe it with timestamps and describe any sounds or music.`,
+                    )
+                  }
+                >
+                  {file.kind === 'image' ? 'Ask Buddo to look at it' : file.kind === 'video' ? 'Ask Buddo to watch it' : 'Ask Buddo to listen'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <CodeView content={file.content} path={file.path} />
+          )}
         </div>
       </div>
     );

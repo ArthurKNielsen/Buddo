@@ -8,7 +8,8 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { Readable } from 'node:stream';
-import { createNodeWorkspace } from '@buddo/core/node';
+import { createNodeWorkspace, loadMedia } from '@buddo/core/node';
+import crypto from 'node:crypto';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -50,6 +51,12 @@ async function json(req) {
 
 export async function startServer({ port = 4141, host = '127.0.0.1', root = process.cwd(), webDir, log = console.log } = {}) {
   let workspace = createNodeWorkspace(root);
+  // Token for <img>/<video> previews of workspace files (those requests can't send custom headers).
+  const rawToken = crypto.randomBytes(16).toString('hex');
+  // Warm up the senses in the background so the first watch/listen is instant.
+  loadMedia()
+    .then((m) => m.modelStatus().every((x) => x.installed) && m.preload())
+    .catch(() => {});
 
   async function api(req, res, url) {
     const p = url.pathname;
@@ -57,7 +64,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
 
     if (p === '/api/health') return send(res, 200, { ok: true, app: 'buddo', version: '1.0.0', platform: process.platform });
     if (p === '/api/workspace' && req.method === 'GET') {
-      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities, home: os.homedir(), sep: path.sep });
+      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities, home: os.homedir(), sep: path.sep, rawToken });
     }
     if (p === '/api/workspace' && req.method === 'POST') {
       const { root: next } = await json(req);
@@ -88,6 +95,24 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       const isProject = items.some((d) => ['package.json', '.git', 'pyproject.toml', 'Cargo.toml', 'go.mod'].includes(d.name));
       return send(res, 200, { path: dir, parent: path.dirname(dir) === dir ? null : path.dirname(dir), dirs, isProject, home: os.homedir() });
     }
+    if (p === '/api/fs/raw') {
+      const full = path.resolve(workspace.root, (q.get('path') || '').replace(/^\/+/, ''));
+      if (full !== workspace.root && !full.startsWith(workspace.root + path.sep)) return send(res, 403, { error: 'Outside workspace' });
+      const st = await fs.stat(full).catch(() => null);
+      if (!st?.isFile()) return send(res, 404, { error: 'Not found' });
+      const ext = path.extname(full).toLowerCase();
+      const type = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg' }[ext] || 'application/octet-stream';
+      // Range support so <video>/<audio> can seek.
+      const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+      if (range) {
+        const startB = range[1] ? Number(range[1]) : 0;
+        const endB = range[2] ? Math.min(Number(range[2]), st.size - 1) : st.size - 1;
+        res.writeHead(206, { 'content-type': type, 'content-range': `bytes ${startB}-${endB}/${st.size}`, 'accept-ranges': 'bytes', 'content-length': endB - startB + 1 });
+        return createReadStream(full, { start: startB, end: endB }).pipe(res);
+      }
+      res.writeHead(200, { 'content-type': type, 'content-length': st.size, 'accept-ranges': 'bytes' });
+      return createReadStream(full).pipe(res);
+    }
     if (p === '/api/fs/list') return send(res, 200, { entries: await workspace.list(q.get('path') || '.', Number(q.get('depth')) || 2) });
     if (p === '/api/fs/read') return send(res, 200, { content: await workspace.read(q.get('path')) });
     if (p === '/api/fs/write' && req.method === 'POST') {
@@ -115,6 +140,50 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       });
       res.end(JSON.stringify({ type: 'exit', ...r }) + '\n');
       return;
+    }
+    if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image'].includes(p.slice(11))) {
+      return send(res, 200, await workspace.media[p.slice(11)](await json(req)));
+    }
+    if (p === '/api/media/status') {
+      try {
+        const m = await loadMedia();
+        return send(res, 200, { available: true, models: m.modelStatus(), ffmpeg: m.FFMPEG });
+      } catch (e) {
+        return send(res, 200, { available: false, error: e.message, models: [] });
+      }
+    }
+    if (p === '/api/media/setup' && req.method === 'POST') {
+      // Streams download progress as NDJSON.
+      res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache' });
+      try {
+        const m = await loadMedia();
+        let last = 0;
+        await m.ensureAll((ev) => {
+          const now = Date.now();
+          if (ev.stage || now - last > 150) {
+            last = now;
+            res.write(JSON.stringify({ type: 'progress', ...ev }) + '\n');
+          }
+        });
+        await m.preload();
+        res.end(JSON.stringify({ type: 'done', models: m.modelStatus() }) + '\n');
+      } catch (e) {
+        res.end(JSON.stringify({ type: 'error', error: e.message }) + '\n');
+      }
+      return;
+    }
+    // Describe an image the user pasted into the chat (for models that can't see images).
+    if (p === '/api/media/describe' && req.method === 'POST') {
+      const { name = 'image.png', data } = await json(req);
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-img-'));
+      const file = path.join(dir, path.basename(name).replace(/[^\w.-]/g, '_') || 'image.png');
+      try {
+        await fs.writeFile(file, Buffer.from(data, 'base64'));
+        const r = await (await loadMedia()).viewImage(file);
+        return send(res, 200, { text: r.text.replace(/^IMAGE [^—]*/, `IMAGE ${name} `), objects: r.display.objects });
+      } finally {
+        fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
     }
     if (p === '/api/fetch' && req.method === 'POST') return send(res, 200, { text: await workspace.fetchUrl((await json(req)).url) });
     return send(res, 404, { error: 'Not found' });
@@ -175,7 +244,8 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
         // CSRF protection: a custom header forces a CORS preflight, which we never approve,
         // so other websites can't drive this local server.
         if (req.method === 'OPTIONS') return send(res, 403, 'CORS not allowed');
-        if (req.headers['x-buddo'] !== '1') return send(res, 403, { error: 'Missing x-buddo header' });
+        const rawOk = url.pathname === '/api/fs/raw' && url.searchParams.get('token') === rawToken && req.method === 'GET';
+        if (req.headers['x-buddo'] !== '1' && !rawOk) return send(res, 403, { error: 'Missing x-buddo header' });
         const origin = req.headers.origin;
         if (origin) {
           const o = new URL(origin);

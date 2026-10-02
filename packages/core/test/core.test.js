@@ -73,3 +73,30 @@ test('agent loop end-to-end with a scripted model', async () => {
   assert.ok(text.includes('I will read it.') && text.includes('Done!'));
   assert.ok(!text.includes('<tool'));
 });
+
+test('media tools: images reach vision models only', async () => {
+  const ws = {
+    name: 'w',
+    capabilities: { exec: false },
+    list: async () => [],
+    read: async () => { throw new Error('nope'); },
+    media: { view_image: async ({ path }) => ({ text: `IMAGE ${path}: cat`, images: ['QUJD'], display: { type: 'media', kind: 'image', objects: [] } }) },
+  };
+  for (const vision of [true, false]) {
+    let i = 0;
+    const seen = [];
+    const provider = {
+      async *stream({ messages }) {
+        seen.push(messages);
+        yield { type: 'text', text: i++ === 0 ? '<tool:view_image>\n<path>cat.png</path>\n</tool:view_image>' : 'A cat.' };
+      },
+    };
+    const messages = [{ role: 'user', content: 'what is in cat.png?' }];
+    const r = await runAgent({ provider, model: 'm', workspace: ws, messages, mode: 'auto', vision });
+    assert.equal(r.status, 'done');
+    const toolMsg = seen[1].find((m) => m.content.startsWith('<tool_result name="view_image"'));
+    assert.ok(toolMsg.content.includes('IMAGE cat.png: cat'));
+    assert.equal(!!toolMsg.images, vision);
+    assert.ok(seen[0][0].content.includes(vision ? 'You can SEE images' : 'cannot see images'));
+  }
+});

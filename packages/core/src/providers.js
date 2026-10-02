@@ -34,6 +34,18 @@ async function check(res) {
   throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 
+/** Best guess from the model name when the server can't tell us. */
+export function guessVision(model = '') {
+  return /vl\b|vl:|vision|llava|bakllava|gemma3(?!n)|minicpm-v|pixtral|moondream|qwen2\.5vl|qwen3-vl|granite3\.2-vision|mistral-small3\.[12]|llama4|smolvlm/i.test(model);
+}
+
+const toOpenAI = (messages) =>
+  messages.map((m) =>
+    m.images?.length
+      ? { role: m.role, content: [{ type: 'text', text: m.content }, ...m.images.map((b) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b}` } }))] }
+      : { role: m.role, content: m.content },
+  );
+
 export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {}, fetch: f = globalThis.fetch.bind(globalThis) } = {}) {
   const url = (p) => baseUrl.replace(/\/$/, '') + p;
   return {
@@ -54,6 +66,16 @@ export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {
         family: m.details?.family,
         quant: m.details?.quantization_level,
       }));
+    },
+    async modelInfo(model) {
+      try {
+        const r = await check(await f(url('/api/show'), { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ model }) }));
+        const j = await r.json();
+        const caps = j.capabilities || [];
+        return { vision: caps.length ? caps.includes('vision') : guessVision(model) || !!j.projector_info, capabilities: caps };
+      } catch {
+        return { vision: guessVision(model) };
+      }
     },
     async *stream({ model, messages, signal, options = {} }) {
       const r = await check(
@@ -126,12 +148,15 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
       const j = await r.json();
       return (j.data || []).map((m) => ({ id: m.id }));
     },
+    async modelInfo(model) {
+      return { vision: guessVision(model) };
+    },
     async *stream({ model, messages, signal, options = {} }) {
       const r = await check(
         await f(url('/chat/completions'), {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...headers },
-          body: JSON.stringify({ model, messages, stream: true, temperature: options.temperature ?? 0.2, stream_options: { include_usage: true } }),
+          body: JSON.stringify({ model, messages: toOpenAI(messages), stream: true, temperature: options.temperature ?? 0.2, stream_options: { include_usage: true } }),
           signal,
         }),
       );
@@ -163,5 +188,7 @@ export const RECOMMENDED_MODELS = [
   { id: 'qwen3-coder:30b', label: 'Qwen 3 Coder 30B', size: '19 GB', note: 'Top-tier local agent, needs 32 GB+ RAM', tag: 'Beast' },
   { id: 'gpt-oss:20b', label: 'gpt-oss 20B', size: '14 GB', note: 'Open-weight reasoning model', tag: 'Reasoning' },
   { id: 'deepseek-coder-v2:16b', label: 'DeepSeek Coder V2 16B', size: '8.9 GB', note: 'Fast MoE coder', tag: 'Fast' },
+  { id: 'qwen2.5vl:7b', label: 'Qwen 2.5 VL 7B', size: '6.0 GB', note: 'Sees images & video frames 👁', tag: 'Vision' },
+  { id: 'gemma3:4b', label: 'Gemma 3 4B', size: '3.3 GB', note: 'Small, fast, sees images 👁', tag: 'Vision' },
   { id: 'qwen2.5-coder:3b', label: 'Qwen 2.5 Coder 3B', size: '1.9 GB', note: 'For low-RAM machines', tag: 'Light' },
 ];

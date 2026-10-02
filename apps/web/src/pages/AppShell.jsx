@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStore } from '../lib/store.js';
-import { initWorkspace, checkEngine } from '../lib/engine.js';
+import { initWorkspace, checkEngine, checkVision } from '../lib/engine.js';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import ChatView from '../components/ChatView.jsx';
@@ -50,9 +50,13 @@ export default function AppShell() {
     })();
   }, []);
 
+  const model = useStore((s) => s.settings.model);
   useEffect(() => {
     checkEngine();
   }, [engine]);
+  useEffect(() => {
+    checkVision();
+  }, [model]);
 
   useEffect(() => {
     const onKey = (e) => {

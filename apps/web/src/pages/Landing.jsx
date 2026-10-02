@@ -165,6 +165,7 @@ const FEATURES = [
   { icon: Brain, title: 'A real agent', desc: 'Explores your repo, plans with a live todo list, edits files, runs tests and iterates until it works.' },
   { icon: GitCompare, title: 'Beautiful diffs + one-click revert', desc: 'Review every change with syntax-highlighted diffs. Undo any file instantly.' },
   { icon: Terminal, title: 'Runs your commands', desc: 'Tests, builds, git, installs — with your approval, streamed live into an integrated terminal.' },
+  { icon: Brain, title: 'Watches, hears & sees', desc: 'Give it a video, audio or image: it finds the scenes, reads the speech, recognizes sounds and objects — in about a second, locally.' },
   { icon: Eye, title: 'Live preview', desc: 'Building a website? See it render right next to the chat as Buddo writes it.' },
   { icon: Shield, title: 'Permission modes', desc: 'Ask, Auto-edit, YOLO or read-only Plan mode. You stay in control.' },
   { icon: Command, title: 'Slash commands & ⌘K', desc: '/init, /review, /test, /fix, /commit, /plan and more. Command palette for everything.' },

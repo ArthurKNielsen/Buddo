@@ -62,6 +62,30 @@ export const TOOLS = [
     example: '<tool:fetch_url>\n<url>https://example.com/docs</url>\n</tool:fetch_url>',
   },
   {
+    name: 'watch_video',
+    kind: 'read',
+    media: true,
+    params: ['path', 'start', 'end', 'frames'],
+    desc: 'Watch a video file (mp4, mov, webm…). You get scene cuts, timestamped key frames (attached as ONE contact-sheet image, read left→right, top→bottom), objects in each frame, and what it sounds like (speech transcript with timestamps, sounds/music, loudness). Optional `start`/`end` (seconds or m:ss) to zoom into a part, `frames` (default 12, max 32) for more detail.',
+    example: '<tool:watch_video>\n<path>clip.mp4</path>\n</tool:watch_video>',
+  },
+  {
+    name: 'listen_audio',
+    kind: 'read',
+    media: true,
+    params: ['path', 'start', 'end'],
+    desc: 'Listen to an audio or video file (mp3, wav, m4a, mp4…): speech transcript with timestamps (any language), recognized sounds and music over time, loudness peaks and silences.',
+    example: '<tool:listen_audio>\n<path>interview.mp3</path>\n</tool:listen_audio>',
+  },
+  {
+    name: 'view_image',
+    kind: 'read',
+    media: true,
+    params: ['path'],
+    desc: 'Look at an image file (png, jpg, webp, gif…). The image is attached so you can see it, plus detected objects with their positions.',
+    example: '<tool:view_image>\n<path>screenshot.png</path>\n</tool:view_image>',
+  },
+  {
     name: 'todo',
     kind: 'meta',
     params: ['items'],
@@ -266,6 +290,23 @@ export async function executeTool(call, ctx) {
         const text = await workspace.fetchUrl(url);
         return { ok: true, output: clip(text, 15000), display: { type: 'web', url, text } };
       }
+      case 'watch_video':
+      case 'listen_audio':
+      case 'view_image': {
+        if (!workspace.media) {
+          return {
+            ok: false,
+            output: 'Watching videos, listening to audio and viewing image files needs the Buddo desktop app or `buddo web` (local mode). Tell the user, or ask them to attach the image in the chat.',
+          };
+        }
+        const r = await workspace.media[call.name]({
+          path: need('path'),
+          start: parseTime(a.start),
+          end: parseTime(a.end),
+          frames: a.frames ? Math.min(32, Math.max(2, parseInt(a.frames, 10) || 12)) : undefined,
+        });
+        return { ok: true, output: r.text, images: r.images || [], display: r.display };
+      }
       case 'todo': {
         const todos = parseTodos(a.items || '');
         ctx.onTodos?.(todos);
@@ -277,6 +318,14 @@ export async function executeTool(call, ctx) {
     return { ok: false, output: `Error: ${err?.message || err}` };
   }
   return { ok: false, output: 'Tool not implemented.' };
+}
+
+/** "1:23.5" | "83.5" | "83.5s" → seconds (undefined if empty). */
+export function parseTime(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return undefined;
+  const parts = String(v).trim().replace(/s$/i, '').split(':').map(Number);
+  if (parts.some((x) => Number.isNaN(x))) return undefined;
+  return parts.reduce((acc, x) => acc * 60 + x, 0);
 }
 
 /** Short human label for a tool call (used in UIs). */
@@ -291,6 +340,9 @@ export function describeCall(call) {
     case 'edit_file': return a.path;
     case 'run_command': return a.command;
     case 'fetch_url': return a.url;
+    case 'watch_video':
+    case 'listen_audio': return a.path + (a.start || a.end ? ` (${a.start || 0}–${a.end || 'end'})` : '');
+    case 'view_image': return a.path;
     case 'todo': return `${parseTodos(a.items).length} items`;
     default: return '';
   }

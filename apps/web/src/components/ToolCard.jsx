@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle,
+  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle, Clapperboard, Ear, Image as ImageIcon,
 } from 'lucide-react';
+import MediaView from './MediaView.jsx';
 import { describeCall, diffLines, diffStats, parseTodos } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { respondPermission } from '../lib/runner.js';
@@ -18,6 +19,9 @@ const META = {
   run_command: { icon: TerminalSquare, label: 'Run' },
   fetch_url: { icon: Globe, label: 'Fetch' },
   todo: { icon: ListTodo, label: 'Plan' },
+  watch_video: { icon: Clapperboard, label: 'Watch' },
+  listen_audio: { icon: Ear, label: 'Listen' },
+  view_image: { icon: ImageIcon, label: 'Look' },
 };
 
 function Stats({ before, after }) {
@@ -110,6 +114,8 @@ function Body({ part }) {
       return <TodoList todos={d.todos} />;
     case 'web':
       return <pre className="tool-output">{d.text.slice(0, 4000)}</pre>;
+    case 'media':
+      return <MediaView d={d} />;
     default:
       return <pre className="tool-output">{part.output}</pre>;
   }
@@ -128,6 +134,7 @@ function summary(part) {
     case 'terminal': return d.code === 0 ? 'exit 0' : `exit ${d.code}`;
     case 'todos': return `${d.todos.filter((t) => t.status === 'done').length}/${d.todos.length} done`;
     case 'web': return `${Math.round(d.text.length / 1000)}k chars`;
+    case 'media': return `${d.kind === 'video' ? `${d.frames.length} frames${d.hearing ? ' + audio' : ''}` : d.kind === 'audio' ? `${d.hearing?.speech?.segments.length || 0} lines heard` : `${d.objects.length} objects`} · ${(d.ms / 1000).toFixed(1)}s`;
     default: return null;
   }
 }
@@ -139,7 +146,7 @@ export default function ToolCard({ part }) {
   const permission = useStore((s) => s.permission);
   const myTurn = awaiting && permission?.callId === call.id;
   const cardRef = useRef(null);
-  const autoOpen = awaiting || (part.display?.type === 'diff') || call.name === 'todo' || (part.display?.type === 'terminal' && part.display.code !== 0);
+  const autoOpen = awaiting || (part.display?.type === 'diff') || part.display?.type === 'media' || call.name === 'todo' || (part.display?.type === 'terminal' && part.display.code !== 0);
   const [open, setOpen] = useState(autoOpen);
   useEffect(() => {
     if (autoOpen) setOpen(true);

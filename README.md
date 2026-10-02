@@ -24,6 +24,7 @@ Buddo is an open-source alternative to paid AI coding agents. It explores your c
 | 🤖 **Agentic** | Reads, searches, writes and edits files, runs shell commands, fetches docs, and checks its work. Works with any model thanks to a robust text-based tool protocol. |
 | 🔐 **Permission modes** | **Ask** (approve every edit & command), **Auto** (auto-edit, approve commands), **YOLO** (approve all), **Plan** (read-only). `Shift+Tab` cycles. |
 | 🧾 **Diffs + one-click revert** | Every change gets a syntax-highlighted diff. The Changes panel can revert any file — or everything. |
+| 👁️👂 **Watches, hears & sees** | `watch_video`, `listen_audio`, `view_image`: key frames + scene cuts + objects, speech-to-text with timestamps (99 languages), sound recognition and loudness — about a second per clip, fully local. Vision models (e.g. `qwen2.5vl:7b`) see the frames; other models get text descriptions. Paste or drop images into the chat. |
 | 🖥️ **Integrated terminal** | Watch commands Buddo runs, or run your own. |
 | 👀 **Live preview** | Building a website? It renders next to the chat as Buddo writes it. |
 | ✅ **Live task list** | For bigger jobs Buddo writes a plan and checks items off as it goes. |
@@ -74,6 +75,18 @@ buddo models | buddo pull qwen3:8b | buddo doctor
 
 Options: `-m <model>`, `--mode ask|auto|yolo|plan`, `--provider ollama|openai`, `--url <engine url>`, `--ctx <tokens>`.
 
+## 👁️👂 Senses (video, audio, images)
+
+In the desktop app, `npm start` or the CLI, Buddo can perceive media files in your project:
+
+| Tool | What it gives the model | Speed (11 s phone video, 4-core laptop CPU) |
+|---|---|---|
+| `watch_video` | scene cuts, 12 key frames as one contact-sheet image, objects per frame, transcript, sounds, loudness | ~1.5 s |
+| `listen_audio` | timestamped transcript (Whisper, 99 languages), sounds over time (527 AudioSet classes), loudness & silences | ~1 s per 7 s of speech |
+| `view_image` | the picture (for vision models) + detected objects with positions | ~0.3 s |
+
+The models are small, free and fetched once from GitHub (~210 MB download, ~80 MB on disk) — **Settings → Senses → Download**, or automatically on first use. ffmpeg is bundled. For the model to *see* the frames, pick a vision model such as `qwen2.5vl:7b` or `gemma3:4b`.
+
 ## 🧠 Which model?
 
 Quality depends on the model you run — bigger is smarter but needs more RAM.
@@ -86,6 +99,8 @@ Quality depends on the model you run — bigger is smarter but needs more RAM.
 | `qwen2.5-coder:14b` | 9 GB | Noticeably smarter (16–32 GB) |
 | `gpt-oss:20b` | 14 GB | Strong open reasoning model |
 | `qwen3-coder:30b` | 19 GB | Top-tier local agent (32 GB+) |
+| `qwen2.5vl:7b` 👁 | 6 GB | Sees images & video frames |
+| `gemma3:4b` 👁 | 3.3 GB | Small vision model |
 
 Tip: raise the context window in **Settings → Engine** (16k–32k) for bigger projects.
 
@@ -103,7 +118,8 @@ You can deploy `apps/web/dist` to any static host (GitHub Pages, Netlify, Vercel
 
 ```
 packages/core     Agent brain: loop, tool protocol, prompts, providers, diff (shared everywhere)
-packages/server   Zero-dependency local server: workspace API, shell, model proxy, static hosting
+packages/media    Senses: ffmpeg, Whisper + Silero VAD + AudioSet (sherpa-onnx), YOLO11 (onnxruntime)
+packages/server   Local server: workspace API, shell, model proxy, static hosting
 packages/cli      `buddo` terminal app
 apps/web          React + Vite web app and landing page (framer-motion animations)
 apps/desktop      Electron wrapper (bundles server + web UI)

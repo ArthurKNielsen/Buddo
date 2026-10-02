@@ -49,6 +49,25 @@ function ContextRing({ used, total }) {
   );
 }
 
+// Downscale images in the browser (fast uploads, fewer tokens for vision models).
+function shrinkImage(file, max = 1280) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve({ image: c.toDataURL('image/jpeg', 0.85).split(',')[1], mime: 'image/jpeg' });
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 export default function Composer() {
   const [text, setText] = useState('');
   const [caretPos, setCaretPos] = useState(null);
@@ -181,9 +200,9 @@ export default function Composer() {
   const addFiles = async (list) => {
     const out = [];
     for (const f of list) {
-      if (f.size > 2_000_000) continue;
       try {
-        out.push({ name: f.name, content: await f.text() });
+        if (f.type.startsWith('image/')) out.push({ name: f.name || 'pasted-image.png', ...(await shrinkImage(f)) });
+        else if (f.size <= 2_000_000) out.push({ name: f.name, content: await f.text() });
       } catch {}
     }
     setFiles((x) => [...x, ...out]);
@@ -253,8 +272,8 @@ export default function Composer() {
             {files.length > 0 && (
               <motion.div className="attachments" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
                 {files.map((f, i) => (
-                  <motion.span key={f.name + i} className="chip" initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
-                    <FileText size={12} /> {f.name}
+                  <motion.span key={f.name + i} className={'chip' + (f.image ? ' chip-img' : '')} initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
+                    {f.image ? <img src={`data:${f.mime};base64,${f.image}`} alt="" /> : <FileText size={12} />} {f.name}
                     <button onClick={() => setFiles(files.filter((_, j) => j !== i))}>
                       <X size={12} />
                     </button>

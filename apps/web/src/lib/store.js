@@ -63,9 +63,10 @@ const clipStr = (s, n = 60000) => (typeof s === 'string' && s.length > n ? s.sli
 function slimSession(s) {
   return {
     ...s,
+    history: s.history.map((m) => (m.images ? { role: m.role, content: m.content + '\n[image omitted]' } : m)),
     items: s.items.slice(-300).map((it) =>
       it.type !== 'assistant'
-        ? it
+        ? { ...it, images: undefined }
         : {
             ...it,
             parts: it.parts.map((p) =>
@@ -77,7 +78,7 @@ function slimSession(s) {
   };
 }
 function slimDisplay(d) {
-  const o = { ...d };
+  const o = { ...d, sheet: undefined, image: undefined };
   for (const k of ['before', 'after', 'content', 'output', 'text']) if (typeof o[k] === 'string') o[k] = clipStr(o[k], 40000);
   if (o.entries) o.entries = o.entries.slice(0, 300);
   if (o.hits) o.hits = o.hits.slice(0, 120);
@@ -115,6 +116,7 @@ export const useStore = create(
       toasts: [],
       fileIndex: [],
       composerInsert: null,
+      vision: false,
 
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
       setUI: (patch) => set((s) => ({ ui: { ...s.ui, ...patch } })),

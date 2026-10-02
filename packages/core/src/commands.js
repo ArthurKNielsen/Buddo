@@ -63,6 +63,12 @@ export const SLASH_COMMANDS = [
     prompt: (a) => `Write or improve documentation for ${a || 'this project (README)'}: purpose, setup, usage examples. Keep it accurate to the code.`,
   },
   {
+    name: 'watch',
+    desc: 'Watch a video, listen to audio or look at an image',
+    arg: 'file',
+    prompt: (a) => `Perceive ${a || 'the media files in this project'} with your media tools (watch_video / listen_audio / view_image) and describe what you see and hear, with timestamps for video/audio.`,
+  },
+  {
     name: 'scaffold',
     desc: 'Create a new project or feature from scratch',
     arg: 'description',

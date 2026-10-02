@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, Monitor, Check } from 'lucide-react';
+import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, Monitor, Check, Eye } from 'lucide-react';
+import SensesPanel from './SensesPanel.jsx';
 import { useStore, DEFAULT_SETTINGS } from '../lib/store.js';
 import { checkEngine } from '../lib/engine.js';
 import { MODES } from './Composer.jsx';
@@ -8,6 +9,7 @@ import Logo from './Logo.jsx';
 
 const TABS = [
   { id: 'engine', icon: Cpu, label: 'Engine' },
+  { id: 'senses', icon: Eye, label: 'Senses' },
   { id: 'appearance', icon: Palette, label: 'Appearance' },
   { id: 'behavior', icon: SlidersHorizontal, label: 'Behavior' },
   { id: 'data', icon: Database, label: 'Data' },
@@ -103,6 +105,7 @@ export default function SettingsModal() {
               </button>
             </>
           )}
+          {tab === 'senses' && <SensesPanel />}
           {tab === 'appearance' && (
             <>
               <div className="field">

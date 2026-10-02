@@ -8,6 +8,8 @@
 
 Web app · Desktop app · Terminal CLI
 
+**[🌐 Try Buddo in your browser](https://arthurknielsen.github.io/buddo/app)** — works on iPhone too: open it in Safari, then tap **Share → Add to Home Screen**.
+
 </div>
 
 ---

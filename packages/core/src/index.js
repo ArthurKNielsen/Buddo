@@ -9,3 +9,4 @@ export { diffLines, diffStats, diffHunks } from './diff.js';
 export { globToRegExp, matchGlob, searchFiles, formatTree, htmlToText, IGNORED_DIRS, isTextLike } from './tree.js';
 export { SLASH_COMMANDS, parseSlash, COMPACT_PROMPT } from './commands.js';
 export { extractCodeFiles, asksForCode, isRefusal } from './codeblocks.js';
+export { looksGarbled } from './garble.js';

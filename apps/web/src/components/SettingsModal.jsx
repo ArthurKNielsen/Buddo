@@ -130,6 +130,24 @@ export default function SettingsModal() {
                 </div>
                 <span className="hint">Models without a thinking mode write a short plan before each step, so you can see what they're thinking. Auto: on for normal models, off for Pocket models (it costs them a few seconds). Thinking models (Qwen 3, gpt-oss, DeepSeek R1) always show their thoughts.</span>
               </div>
+              {s.engine === 'webllm' && (
+                <div className="field">
+                  <label>GPU precision (in-browser models)</label>
+                  <div className="seg">
+                    {[
+                      ['auto', 'Auto'],
+                      ['f16', 'Fast (f16)'],
+                      ['f32', 'Safe (f32)'],
+                    ].map(([id, l]) => (
+                      <button key={id} className={s.webllmPrecision === id ? 'on' : ''} onClick={() => setSettings({ webllmPrecision: id })}>
+                        {s.webllmPrecision === id && <motion.div layoutId="prec-pill" className="seg-pill" />}
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hint">If replies come out as gibberish (random symbols and Chinese characters), your GPU does fast f16 math wrong — use Safe. Auto picks Safe on Chromebooks and GPUs without f16, and switches by itself if it spots gibberish. Changing it downloads the other version once.</span>
+                </div>
+              )}
               <div className="field">
                 <label>Creativity (temperature) · {s.temperature.toFixed(2)}</label>
                 <input type="range" min={0} max={1} step={0.05} value={s.temperature} onChange={(e) => setSettings({ temperature: +e.target.value })} className="range" />

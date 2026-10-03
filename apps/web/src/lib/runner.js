@@ -1,6 +1,6 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -286,6 +286,17 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   useStore.setState({ running: null, permission: null });
   if (result.status === 'done' && !hidden) autoLearn(sid, { lite, settings });
   if (result.status === 'error' && /fetch|reach|ECONNREFUSED|Failed/i.test(draft.error || '')) checkEngine();
+  // Gibberish from the in-browser engine = broken half-precision GPU math. Switch to full precision and retry once.
+  if (result.status === 'error' && /^GARBLED/.test(draft.error || '') && settings.engine === 'webllm') {
+    if ((await webllmPrecision(settings)) === 'f16') {
+      S().setSettings({ webllmPrecision: 'f32' });
+      S().toast('Your GPU garbled the fast version of this model — switching to the safe (f32) version and trying again', 'info');
+      if (!hidden) retryLast();
+    } else {
+      draft.error = 'The model keeps producing gibberish on this GPU, even in safe (f32) mode. Try a smaller model, close other tabs, or use Ollama.';
+      flush();
+    }
+  }
 }
 
 async function previewChange(call, ws) {

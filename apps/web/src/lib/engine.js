@@ -1,6 +1,6 @@
 // Connects the UI to a model engine and a workspace.
 
-import { ollamaProvider, openaiCompatProvider, thinksNatively } from '@buddo/core';
+import { ollamaProvider, openaiCompatProvider, thinksNatively, looksGarbled } from '@buddo/core';
 import { useStore } from './store.js';
 import {
   detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess,
@@ -62,7 +62,32 @@ let webllmLoading = null;
 
 export const hasWebGPU = () => typeof navigator !== 'undefined' && 'gpu' in navigator;
 
-export async function loadWebLLM(model) {
+// Every in-browser model comes in two builds: q4f16 (half-precision GPU math, faster) and q4f32 (full precision).
+// Some GPUs — often Chromebooks — say they support f16 but compute it wrong, which turns replies into word salad.
+let f16Support = null;
+async function gpuSupportsF16() {
+  if (f16Support !== null) return f16Support;
+  try {
+    const adapter = await navigator.gpu?.requestAdapter();
+    f16Support = !!adapter?.features?.has('shader-f16');
+  } catch {
+    f16Support = false;
+  }
+  return f16Support;
+}
+export const isChromebook = () => typeof navigator !== 'undefined' && /\bCrOS\b/.test(navigator.userAgent);
+
+/** 'f16' or 'f32' for in-browser models on this device. */
+export async function webllmPrecision(settings = useStore.getState().settings) {
+  if (settings.webllmPrecision === 'f16' || settings.webllmPrecision === 'f32') return settings.webllmPrecision;
+  if (isChromebook()) return 'f32';
+  return (await gpuSupportsF16()) ? 'f16' : 'f32';
+}
+const withPrecision = (model, precision) => (precision === 'f32' ? model.replace('q4f16_1', 'q4f32_1') : model);
+
+export async function loadWebLLM(baseModel) {
+  const precision = await webllmPrecision();
+  const model = withPrecision(baseModel, precision);
   if (webllmEngine && webllmLoaded === model) return webllmEngine;
   if (webllmLoading) return webllmLoading;
   if (!hasWebGPU()) throw new Error('WebGPU is not available in this browser. Try Chrome or Edge, or use Ollama.');
@@ -103,6 +128,8 @@ function webllmProvider() {
     },
     async *stream({ model, messages, signal, options = {} }) {
       const engine = await loadWebLLM(model);
+      const prompt = [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
+      let text = '';
       const chunks = await engine.chat.completions.create({
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         stream: true,
@@ -117,7 +144,15 @@ function webllmProvider() {
           break;
         }
         const t = c.choices?.[0]?.delta?.content;
-        if (t) yield { type: 'text', text: t };
+        if (t) {
+          // Catch broken GPU math early instead of streaming a wall of nonsense.
+          if (text.length < 1500 && looksGarbled((text += t), prompt)) {
+            engine.interruptGenerate();
+            const err = new Error(`GARBLED: the model's output came out as gibberish — this GPU computes the fast (${webllmLoaded.includes('q4f32') ? 'f32' : 'f16'}) version wrong.`);
+            throw err;
+          }
+          yield { type: 'text', text: t };
+        }
         if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: c.usage.extra?.decode_tokens_per_s };
       }
     },

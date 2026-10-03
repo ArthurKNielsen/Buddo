@@ -45,3 +45,13 @@ test('a tool call inside an unclosed <think> still runs', () => {
   assert.equal(a.call.complete, true);
   assert.match(a.thinking, /I will write it now/);
 });
+
+test('detects garbled GPU output, not normal replies', async () => {
+  const { looksGarbled } = await import('../src/index.js');
+  const bad = '!type会会长/drivers.s statusCode开战 then runsistol :.0"\n```\n207070.4.subaday.then .\nlify suce .\nlifyNST. Ifさ价g8, y suce .\n18价\n``,01价 import the:\n1价ge-fly testament viewer.attributes软件 helf';
+  assert.ok(looksGarbled(bad, 'Hello!'));
+  assert.ok(!looksGarbled('Hello! 👋 How can I help with your project today? I can write code, fix bugs or explain things.', 'Hello!'));
+  assert.ok(!looksGarbled('你好！我可以帮你写代码。请告诉我你想做什么项目，比如网站或者游戏。我们开始吧！', 'Hello!'), 'a full Chinese reply is a language mix-up, not broken math');
+  assert.ok(!looksGarbled('这是一个计数器 app，点击按钮 +1。代码在 index.html 里面，打开就能用了。', '做一个计数器 app'));
+  assert.ok(!looksGarbled('```html\n<!DOCTYPE html>\n<html><body><h1>Counter</h1><button id="add">+1</button></body></html>\n```', 'make a counter'));
+});

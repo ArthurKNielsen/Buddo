@@ -45,9 +45,9 @@ To CHANGE a file that already exists, don't rewrite it. Write only the change (c
 
 index.html
 <<<<<<< SEARCH
-<h1>Hello</h1>
+<p>Old text</p>
 =======
-<h1>Hi there</h1>
+<p>New text</p>
 >>>>>>> REPLACE`}
 
 Optional tools (write ONE, then stop and wait for the result):

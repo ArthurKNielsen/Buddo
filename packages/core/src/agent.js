@@ -146,6 +146,10 @@ export async function runAgent({
     return content === null ? null : { path, content };
   };
   const fence = (path, content) => `\`\`\`${path.split('.').pop()}\n${content.replace(/\n$/, '')}\n\`\`\``;
+  // How to answer an edit. Spelled out line by line: tiny models copy the shape they see, so a one-line
+  // description ("a <<<<<<< SEARCH / ======= / >>>>>>> REPLACE block") came back word for word, with no code.
+  const editHow = (path) =>
+    `Reply with only the change, each marker on its own line. Example (changes <p>Old text</p> to <p>New text</p>):\n\n${path}\n<<<<<<< SEARCH\n<p>Old text</p>\n=======\n<p>New text</p>\n>>>>>>> REPLACE\n\nCopy the SEARCH lines exactly from ${path}. Don't rewrite the whole file.`;
 
   // Small models can't open files themselves: for an edit request, show them the current page.
   if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
@@ -153,7 +157,7 @@ export async function runAgent({
     if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
       const t = await readTarget();
       if (t && t.content.length < 7000) {
-        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\nReply with only the change: ${t.path} on its own line, then a <<<<<<< SEARCH / ======= / >>>>>>> REPLACE block. Don't rewrite the whole file.`;
+        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${editHow(t.path)}`;
         onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
       }
     }
@@ -313,6 +317,24 @@ export async function runAgent({
         continue;
       }
 
+      // Only the edit markers came back (e.g. "<<<<<<< SEARCH / ======= / >>>>>>> REPLACE" with no code).
+      if (canSave && nudges < MAX_NUDGES && !hasCode && /<{5,}\s*(SEARCH|FIND)/i.test(text)) {
+        const t = await readTarget();
+        if (t) {
+          nudges++;
+          messages.push({ role: 'assistant', content: text });
+          messages.push({
+            role: 'user',
+            content:
+              nudges === 1
+                ? `That edit had no code in it. Write the lines to change.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${editHow(t.path)}`
+                : `Please write the COMPLETE updated ${t.path} (the whole file) in one code block.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}`,
+          });
+          onEvent({ type: 'nudge', text: nudges === 1 ? 'The model wrote the edit markers but no code — showed it an example' : `Asked the model for the whole ${t.path}` });
+          continue;
+        }
+      }
+
       // Asked for code, got only words (and not a question back): ask for the code.
       if (canSave && nudges < MAX_NUDGES && wantsCode && !hasCode && !/\?\s*$/.test(text) && text.length < 1500) {
         nudges++;
@@ -339,6 +361,10 @@ export async function runAgent({
         const saved = [];
         const failed = [];
         for (const c of changes.slice(0, 12)) {
+          if (/^<p>Old text<\/p>$/.test(c.find.trim()) && /^<p>New text<\/p>$/.test(c.replace.trim())) {
+            failed.push('That was the example, copied. Write the change for this request instead.');
+            continue;
+          }
           const path = c.path || target?.path;
           if (!path) {
             failed.push('An edit had no file name. Write the file name on the line above <<<<<<< SEARCH.');
@@ -369,7 +395,7 @@ export async function runAgent({
             role: 'user',
             content:
               nudges === 1
-                ? `That edit didn't apply: ${failed[0]}\nThe SEARCH lines must be copied exactly from the file. Try again.\n\n[Current ${target.path}]\n${fence(target.path, now)}`
+                ? `That edit didn't apply: ${failed[0]}\n\n[Current ${target.path}]\n${fence(target.path, now)}\n${editHow(target.path)}`
                 : `Please write the COMPLETE updated ${target.path} (the whole file) in one code block.\n\n[Current ${target.path}]\n${fence(target.path, now)}`,
           });
           onEvent({ type: 'nudge', text: nudges === 1 ? `The model's edit didn't match ${target.path} — asked it to try again` : `Asked the model for the whole ${target.path}` });

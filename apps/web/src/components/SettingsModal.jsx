@@ -3,7 +3,7 @@ import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, M
 import PersonalityPanel from './PersonalityPanel.jsx';
 import SensesPanel from './SensesPanel.jsx';
 import { useStore, DEFAULT_SETTINGS } from '../lib/store.js';
-import { checkEngine, shortModel, precisionOf } from '../lib/engine.js';
+import { checkEngine, shortModel, precisionOf, usesCpu } from '../lib/engine.js';
 import { MODES } from './Composer.jsx';
 import Modal from './Modal.jsx';
 import Logo from './Logo.jsx';
@@ -69,7 +69,7 @@ export default function SettingsModal() {
                 </div>
                 <span className="hint row">
                   <span className={`dot ${s.engine === 'webllm' || engine.status === 'ok' ? 'ok' : 'down'}`} />
-                  {s.engine === 'webllm' ? 'Runs on your GPU via WebGPU' : engine.status === 'ok' ? `Connected · ${engine.models.length} models` : `Not connected${engine.error ? ` — ${engine.error}` : ''}`}
+                  {s.engine === 'webllm' ? (usesCpu(s) ? 'Runs on your CPU (WebAssembly)' : 'Runs on your GPU via WebGPU') : engine.status === 'ok' ? `Connected · ${engine.models.length} models` : `Not connected${engine.error ? ` — ${engine.error}` : ''}`}
                 </span>
               </div>
               {s.engine === 'ollama' && (
@@ -132,6 +132,42 @@ export default function SettingsModal() {
                 <span className="hint">Models without a thinking mode write a short plan before each step, so you can see what they're thinking. Auto: on for normal models, off for Pocket models (it costs them a few seconds). Thinking models (Qwen 3, gpt-oss, DeepSeek R1) always show their thoughts.</span>
               </div>
               {s.engine === 'webllm' && (
+                <div className="field">
+                  <label>Run in-browser models on</label>
+                  <div className="seg">
+                    {[
+                      ['auto', 'Auto'],
+                      ['gpu', 'GPU'],
+                      ['cpu', 'CPU'],
+                    ].map(([id, l]) => (
+                      <button key={id} className={s.webllmDevice === id ? 'on' : ''} onClick={() => setSettings({ webllmDevice: id })}>
+                        {s.webllmDevice === id && <motion.div layoutId="dev-pill" className="seg-pill" />}
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hint">
+                    GPU (WebGPU) is fast. CPU is slower but works on every computer, even when the GPU gives broken answers. Auto uses the GPU, checks once that it answers correctly, and switches to CPU if it can't. CPU mode runs models up to 3B.
+                  </span>
+                  {s.gpuBroken && (
+                    <span className="hint">
+                      ⚠️ Your GPU failed the correctness check, so Auto is using the CPU.{' '}
+                      <button
+                        className="link"
+                        onClick={() => {
+                          try {
+                            localStorage.removeItem('buddo-gpu-verified');
+                          } catch {}
+                          setSettings({ gpuBroken: false });
+                        }}
+                      >
+                        Test the GPU again
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
+              {s.engine === 'webllm' && !usesCpu(s) && (
                 <div className="field">
                   <label>GPU precision (in-browser models)</label>
                   <div className="seg">

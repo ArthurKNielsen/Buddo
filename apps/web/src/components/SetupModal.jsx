@@ -132,21 +132,19 @@ function WebLLMSetup() {
   const webllm = useStore((s) => s.webllm);
   const { setSettings } = useStore.getState();
   const gpu = hasWebGPU();
-  if (!gpu) {
-    return (
-      <div className="status-card bad">
-        <Globe size={16} />
-        <div>
-          <b>WebGPU isn't available in this browser</b>
-          <div className="faint">Use a recent Chrome, Edge or Arc — or pick Ollama for the best results.</div>
-        </div>
-      </div>
-    );
-  }
   return (
     <div>
+      {!gpu && (
+        <div className="status-card" style={{ marginBottom: 12 }}>
+          <Globe size={16} />
+          <div>
+            <b>No WebGPU here — models will run on your CPU</b>
+            <div className="faint">Slower, but it works. Pick a Pocket model for the best speed, or use Ollama for big models.</div>
+          </div>
+        </div>
+      )}
       <p className="muted" style={{ marginTop: 0 }}>
-        The model downloads once into your browser cache and runs on your GPU. Nothing is sent anywhere.
+        The model downloads once into your browser cache and runs on your {gpu ? 'GPU' : 'CPU'}. Nothing is sent anywhere.
       </p>
       <div className="model-list">
         {WEBLLM_MODELS.map((m) => (

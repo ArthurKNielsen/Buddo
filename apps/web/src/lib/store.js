@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS = {
   model: '',
   webllmModel: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC',
   webllmPrecision: 'auto', // auto | f16 | f32 — GPU math for in-browser models
+  webllmDevice: 'auto', // auto | gpu | cpu — where in-browser models run
+  gpuBroken: false, // set when this GPU failed the correctness check even in f32
   liveCode: true, // show code while Buddo is writing it
   lite: 'auto', // auto | on | off — short prompt + small context for tiny models
   mode: 'ask',

@@ -2,6 +2,7 @@
 
 import { ollamaProvider, openaiCompatProvider, thinksNatively, looksGarbled } from '@buddo/core';
 import { useStore } from './store.js';
+import { loadCpu, cpuStream } from './cpu-engine.js';
 import {
   detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess,
 } from './workspaces.js';
@@ -53,7 +54,8 @@ export function thinkAloud(settings = useStore.getState().settings) {
 export function liteMode(settings = useStore.getState().settings) {
   if (settings.lite === 'on') return true;
   if (settings.lite === 'off') return false;
-  return isPocketModel(currentModel(settings));
+  // CPU mode reads prompts slowly, so it always gets the short prompt.
+  return isPocketModel(currentModel(settings)) || (settings.engine === 'webllm' && usesCpu(settings));
 }
 
 let webllmEngine = null;
@@ -84,34 +86,111 @@ export async function webllmPrecision(settings = useStore.getState().settings) {
   return (await gpuSupportsF16()) ? 'f16' : 'f32';
 }
 /** "f32" / "f16" for a WebLLM model id, or '' for other engines. */
-export const precisionOf = (id = '') => (/q4f32_1/.test(id) ? 'f32' : /q4f16_1/.test(id) ? 'f16' : '');
-export const shortModel = (id = '') => id.replace(/-q4f(16|32)_1-MLC$/, '');
+export const precisionOf = (id = '') => (/^cpu:/.test(id) ? 'cpu' : /q4f32_1/.test(id) ? 'f32' : /q4f16_1/.test(id) ? 'f16' : '');
+export const shortModel = (id = '') => id.replace(/^cpu:/, '').replace(/-q4f(16|32)_1-MLC$/, '');
 const withPrecision = (model, precision) => (precision === 'f32' ? model.replace('q4f16_1', 'q4f32_1') : model);
 
+/** Run in-browser models on the CPU (wllama) instead of WebGPU? */
+export function usesCpu(settings = useStore.getState().settings) {
+  if (settings.webllmDevice === 'cpu') return true;
+  if (settings.webllmDevice === 'gpu') return false;
+  return !hasWebGPU() || !!settings.gpuBroken;
+}
+
+// Models that already passed the GPU check on this device (so the check runs once per model build).
+const VERIFIED_KEY = 'buddo-gpu-verified';
+const verified = () => {
+  try {
+    return JSON.parse(localStorage.getItem(VERIFIED_KEY) || '[]');
+  } catch {
+    return [];
+  }
+};
+const markVerified = (id) => {
+  try {
+    localStorage.setItem(VERIFIED_KEY, JSON.stringify([...new Set([...verified(), id])]));
+  } catch {}
+};
+
+/** Ask the loaded model two trivial questions. Broken GPU math can't answer them. */
+async function gpuGivesSaneAnswers(engine) {
+  const ask = async (q) => {
+    const r = await engine.chat.completions.create({ messages: [{ role: 'user', content: q }], temperature: 0, max_tokens: 48 });
+    await engine.resetChat?.().catch?.(() => {});
+    return r.choices?.[0]?.message?.content || '';
+  };
+  if (/\b4\b|\bfour\b/i.test(await ask('What is 2+2? Reply with just the number.'))) return true;
+  const hi = await ask('Say hello.');
+  return /\b(hello|hi|hey)\b/i.test(hi) && !looksGarbled(hi, 'Say hello.');
+}
+
+let webllmLib = null;
+async function loadOnGpu(model) {
+  const status = (text, progress = 0) => useStore.setState({ webllm: { text, progress } });
+  status('Loading WebLLM runtime…');
+  webllmLib ||= await import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2');
+  const onProgress = (p) => status(p.text, p.progress);
+  const ctx = { context_window_size: isPocketModel(model) ? 4096 : 8192 };
+  if (webllmEngine) {
+    webllmEngine.setInitProgressCallback?.(onProgress);
+    await webllmEngine.reload(model, ctx);
+  } else {
+    webllmEngine = await webllmLib.CreateMLCEngine(model, { initProgressCallback: onProgress }, ctx);
+  }
+  webllmLoaded = model;
+  return webllmEngine;
+}
+
+/**
+ * Load an in-browser model and make sure this GPU computes it correctly. If it doesn't:
+ * fast f16 → safe f32 → fresh download (the saved copy may be damaged) → give up on the GPU (CPU mode).
+ */
 export async function loadWebLLM(baseModel) {
-  const precision = await webllmPrecision();
-  const model = withPrecision(baseModel, precision);
+  if (usesCpu()) return loadCpu(baseModel);
+  let precision = await webllmPrecision();
+  let model = withPrecision(baseModel, precision);
   if (webllmEngine && webllmLoaded === model) return webllmEngine;
   if (webllmLoading) return webllmLoading;
-  if (!hasWebGPU()) throw new Error('WebGPU is not available in this browser. Try Chrome or Edge, or use Ollama.');
+  const st = useStore.getState();
+  const checking = (text) => useStore.setState({ webllm: { text, progress: 0 } });
   webllmLoading = (async () => {
-    useStore.setState({ webllm: { text: 'Loading WebLLM runtime…', progress: 0 } });
-    const webllm = await import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2');
-    const onProgress = (p) => useStore.setState({ webllm: { text: p.text, progress: p.progress } });
-    if (webllmEngine) {
-      webllmEngine.setInitProgressCallback?.(onProgress);
-      await webllmEngine.reload(model, { context_window_size: isPocketModel(model) ? 4096 : 8192 });
-    } else {
-      webllmEngine = await webllm.CreateMLCEngine(model, { initProgressCallback: onProgress }, { context_window_size: isPocketModel(model) ? 4096 : 8192 });
+    let engine = await loadOnGpu(model);
+    if (verified().includes(model)) return engine;
+    checking('Checking that your GPU gives correct answers…');
+    if (await gpuGivesSaneAnswers(engine)) return engine;
+
+    if (precision === 'f16') {
+      st.setSettings({ webllmPrecision: 'f32' });
+      st.toast('Your GPU got the fast (f16) math wrong — switching to the safe (f32) version', 'info');
+      precision = 'f32';
+      model = withPrecision(baseModel, 'f32');
+      engine = await loadOnGpu(model);
+      checking('Checking the safe (f32) version…');
+      if (await gpuGivesSaneAnswers(engine)) return engine;
     }
-    webllmLoaded = model;
-    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: model } });
-    return webllmEngine;
+
+    checking('Wrong answers — downloading a fresh copy (the saved one may be damaged)…');
+    await webllmLib.deleteModelAllInfoInCache?.(model).catch?.(() => {});
+    webllmLoaded = '';
+    engine = await loadOnGpu(model);
+    checking('Checking the fresh copy…');
+    if (await gpuGivesSaneAnswers(engine)) return engine;
+
+    st.setSettings({ gpuBroken: true });
+    await webllmEngine?.unload?.().catch?.(() => {}); // free the GPU memory; the CPU takes over
+    webllmEngine = null;
+    webllmLoaded = '';
+    const err = new Error('GPU_BROKEN: this GPU computes the model wrong even in safe mode. Buddo will use the CPU instead.');
+    err.gpuBroken = true;
+    throw err;
   })();
   try {
-    return await webllmLoading;
+    const engine = await webllmLoading;
+    markVerified(model);
+    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: model } });
+    return engine;
   } catch (e) {
-    useStore.setState({ webllm: { text: e.message, progress: 0, error: true } });
+    useStore.setState({ webllm: { text: e.message, progress: 0, error: !e.gpuBroken } });
     throw e;
   } finally {
     webllmLoading = null;
@@ -123,14 +202,22 @@ function webllmProvider() {
     id: 'webllm',
     label: 'In-browser',
     async ping() {
-      if (!hasWebGPU()) throw new Error('WebGPU not supported');
       return {};
     },
     async listModels() {
       return WEBLLM_MODELS.map((m) => ({ id: m.id, label: m.label }));
     },
     async *stream({ model, messages, signal, options = {} }) {
-      const engine = await loadWebLLM(model);
+      const cpu = () => cpuStream({ model, messages, signal, temperature: options.temperature ?? 0.2 });
+      if (usesCpu()) return yield* cpu();
+      let engine;
+      try {
+        engine = await loadWebLLM(model);
+      } catch (e) {
+        if (!e.gpuBroken) throw e;
+        useStore.getState().toast("Your GPU can't run this model correctly — switched to CPU mode (slower, but it works)", 'info');
+        return yield* cpu();
+      }
       const prompt = [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
       let text = '';
       const chunks = await engine.chat.completions.create({
@@ -151,8 +238,7 @@ function webllmProvider() {
           // Catch broken GPU math early instead of streaming a wall of nonsense.
           if (text.length < 1500 && looksGarbled((text += t), prompt)) {
             engine.interruptGenerate();
-            const err = new Error(`GARBLED: the model's output came out as gibberish — this GPU computes the fast (${webllmLoaded.includes('q4f32') ? 'f32' : 'f16'}) version wrong.`);
-            throw err;
+            throw new Error(`GARBLED: the model's output came out as gibberish — this GPU computes the ${precisionOf(webllmLoaded) || 'fast'} version wrong.`);
           }
           yield { type: 'text', text: t };
         }

@@ -288,16 +288,16 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   useStore.setState({ running: null, permission: null });
   if (result.status === 'done' && !hidden) autoLearn(sid, { lite, settings });
   if (result.status === 'error' && /fetch|reach|ECONNREFUSED|Failed/i.test(draft.error || '')) checkEngine();
-  // Gibberish from the in-browser engine = broken half-precision GPU math. Switch to full precision and retry once.
-  if (result.status === 'error' && /^GARBLED/.test(draft.error || '') && settings.engine === 'webllm') {
+  // Gibberish from the in-browser engine = broken GPU math. Try the safe f32 build, then the CPU, and retry.
+  if (result.status === 'error' && /^GARBLED/.test(draft.error || '') && settings.engine === 'webllm' && !hidden) {
     if ((await webllmPrecision(settings)) === 'f16') {
       S().setSettings({ webllmPrecision: 'f32' });
       S().toast('Your GPU garbled the fast version of this model — switching to the safe (f32) version and trying again', 'info');
-      if (!hidden) retryLast();
     } else {
-      draft.error = 'The model keeps producing gibberish on this GPU, even in safe (f32) mode. Try a smaller model, close other tabs, or use Ollama.';
-      flush();
+      S().setSettings({ gpuBroken: true });
+      S().toast("Your GPU garbles this model even in safe mode — switching to CPU mode (slower, but it works) and trying again", 'info');
     }
+    retryLast();
   }
 }
 

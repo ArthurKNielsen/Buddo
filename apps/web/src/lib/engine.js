@@ -220,6 +220,8 @@ function webllmProvider() {
       }
       const prompt = [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
       let text = '';
+      // WebLLM keeps the conversation in its KV cache between calls; start clean when asked (e.g. after an empty reply).
+      if (options.fresh) await engine.resetChat?.();
       const chunks = await engine.chat.completions.create({
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         stream: true,
@@ -242,6 +244,7 @@ function webllmProvider() {
           }
           yield { type: 'text', text: t };
         }
+        if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
         if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: c.usage.extra?.decode_tokens_per_s };
       }
     },

@@ -55,3 +55,32 @@ test('detects garbled GPU output, not normal replies', async () => {
   assert.ok(!looksGarbled('这是一个计数器 app，点击按钮 +1。代码在 index.html 里面，打开就能用了。', '做一个计数器 app'));
   assert.ok(!looksGarbled('```html\n<!DOCTYPE html>\n<html><body><h1>Counter</h1><button id="add">+1</button></body></html>\n```', 'make a counter'));
 });
+
+test('an empty reply is retried once (fresh), then explained', async () => {
+  const ws = { name: 'w', capabilities: {}, list: async () => [], read: async () => { throw new Error('x'); } };
+  const run = async (replies, finish) => {
+    let i = 0;
+    const seen = [];
+    const provider = {
+      async *stream({ options }) {
+        seen.push(options);
+        const t = replies[Math.min(i++, replies.length - 1)];
+        if (t) yield { type: 'text', text: t };
+        if (finish) yield { type: 'finish', reason: finish };
+      },
+    };
+    const events = [];
+    const res = await runAgent({ provider, model: 'm', workspace: ws, messages: [{ role: 'user', content: 'make the button bigger' }], mode: 'auto', onEvent: (e) => events.push(e) });
+    return { res, events, seen };
+  };
+  const ok = await run(['', 'Here you go!']);
+  assert.equal(ok.res.status, 'done');
+  assert.equal(ok.events.filter((e) => e.type === 'nudge').length, 1);
+  assert.equal(ok.seen[1].fresh, true);
+  const twice = await run(['', '']);
+  assert.equal(twice.res.status, 'error');
+  assert.match(twice.events.find((e) => e.type === 'error').error, /empty reply twice/);
+  const full = await run([''], 'length');
+  assert.match(full.events.find((e) => e.type === 'error').error, /ran out of room/);
+  assert.equal(full.seen.length, 1, 'no pointless retry when the context is full');
+});

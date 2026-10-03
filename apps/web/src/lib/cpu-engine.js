@@ -80,6 +80,7 @@ export async function* cpuStream({ model, messages, signal, temperature = 0.2, m
         count++;
         yield { type: 'text', text: t };
       }
+      if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
       if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: first ? count / ((performance.now() - first) / 1000) : 0 };
     }
   } catch (e) {

@@ -108,6 +108,7 @@ export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {
         if (j.message?.thinking) yield { type: 'thinking', text: j.message.thinking };
         if (j.message?.content) yield { type: 'text', text: j.message.content };
         if (j.done) {
+          if (j.done_reason) yield { type: 'finish', reason: j.done_reason };
           yield {
             type: 'usage',
             prompt: j.prompt_eval_count || 0,
@@ -179,6 +180,7 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
         const think = d.reasoning_content || d.reasoning;
         if (think) yield { type: 'thinking', text: think };
         if (d.content) yield { type: 'text', text: d.content };
+        if (j.choices?.[0]?.finish_reason) yield { type: 'finish', reason: j.choices[0].finish_reason };
         if (j.usage) yield { type: 'usage', prompt: j.usage.prompt_tokens || 0, completion: j.usage.completion_tokens || 0 };
       }
     },

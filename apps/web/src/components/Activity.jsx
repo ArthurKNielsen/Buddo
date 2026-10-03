@@ -80,6 +80,8 @@ function StepRow({ step, live, open, onToggle }) {
           read {k(step.usage?.prompt || step.promptTokens)} tokens{step.after ? ` (+ ${step.after} result)` : ''} in {secs(readMs)}
           {step.firstAt ? ` · wrote ${k(out)} tokens in ${secs(writeMs)}${tps ? ` · ${Math.round(tps)} tok/s` : ''}` : ''}
           {step.tool ? ` → ${step.tool}` : ''}
+          {step.finish === 'length' ? ' · stopped: out of room' : ''}
+          {!live && step.endedAt && !step.raw && !step.thought ? ' · empty reply' : ''}
         </span>
       </button>
       <AnimatePresence initial={false}>

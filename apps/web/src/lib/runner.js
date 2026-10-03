@@ -169,6 +169,9 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           }
           if (draft.phase?.kind === 'reading') draft.phase = { kind: 'writing', at: Date.now() };
           break;
+        case 'finish':
+          if (step) step.finish = e.reason;
+          break;
         case 'permission':
           draft.phase = { kind: 'waiting', at: Date.now() };
           break;

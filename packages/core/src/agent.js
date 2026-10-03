@@ -118,6 +118,8 @@ export async function runAgent({
   const alwaysAllowed = new Set();
   let wroteFiles = false;
   let nudged = false;
+  let emptyRetries = 0;
+  let freshNext = false;
   const lastUserText = () => [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
 
   /** Ask permission if needed, then run the tool. Returns the result, or null if the user stopped. */
@@ -155,6 +157,7 @@ export async function runAgent({
     let sentThink = 0;
     let nativeThinking = '';
     let usage = null;
+    let finish = null;
     let stopForTool = false;
     let announced = false;
     let streamedSize = -1;
@@ -168,7 +171,14 @@ export async function runAgent({
     onEvent({ type: 'step', step, promptTokens: contextTokens(wire), after });
 
     try {
-      for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: { num_ctx: contextBudget, temperature } })) {
+      // After an empty reply, ask for a fresh start (engines that cache the conversation drop that cache).
+      const opts = { num_ctx: contextBudget, temperature: freshNext ? Math.max(temperature, 0.6) : temperature, fresh: freshNext };
+      freshNext = false;
+      for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: opts })) {
+        if (chunk.type === 'finish') {
+          finish = chunk.reason;
+          continue;
+        }
         // Everything the model writes, unfiltered (for "see what it's doing" views).
         if (chunk.type === 'thinking' || chunk.type === 'text') onEvent({ type: 'raw', delta: chunk.text, thinking: chunk.type === 'thinking' });
         if (chunk.type === 'thinking') {
@@ -219,6 +229,7 @@ export async function runAgent({
     }
 
     if (usage) onEvent({ type: 'usage', ...usage });
+    if (finish) onEvent({ type: 'finish', reason: finish });
 
     const a = analyze(raw);
     // flush remaining prose
@@ -233,7 +244,20 @@ export async function runAgent({
     if (!a.call) {
       const text = a.prose.trim();
       if (!text && !a.thinking && !nativeThinking) {
-        onEvent({ type: 'error', error: 'The model returned an empty response. Try again or pick a bigger model.' });
+        const full = finish === 'length';
+        // Small models sometimes answer with nothing. Ask once more before giving up.
+        if (emptyRetries < 1 && !full) {
+          emptyRetries++;
+          freshNext = true;
+          onEvent({ type: 'nudge', text: 'The model sent an empty reply — asking again' });
+          continue;
+        }
+        onEvent({
+          type: 'error',
+          error: full
+            ? "The model ran out of room: this chat is longer than its memory (context window). Start a new chat, or type /compact."
+            : 'The model sent an empty reply twice. Try rephrasing, start a new chat, or pick a different model.',
+        });
         return { messages, status: 'error' };
       }
       const wantsCode = asksForCode(lastUserText());

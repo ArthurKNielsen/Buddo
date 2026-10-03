@@ -157,7 +157,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       const m = await loadMedia().catch(() => null);
       return send(res, 200, { available: !!(m && m.browserAvailable(browserProvider)), provider: browserProvider ? browserProvider.name : 'chrome' });
     }
-    if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image', 'screenshot', 'record_video'].includes(p.slice(11))) {
+    if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image', 'screenshot', 'record_video', 'make_video', 'edit_video'].includes(p.slice(11))) {
       return send(res, 200, await workspace.media[p.slice(11)](await json(req)));
     }
     if (p === '/api/media/status') {
@@ -278,6 +278,8 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
     }
   });
 
+  // Making or editing a long video can take minutes; don't cut the request off at Node's 5-minute default.
+  server.requestTimeout = 0;
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);

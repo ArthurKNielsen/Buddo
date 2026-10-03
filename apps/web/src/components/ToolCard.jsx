@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle, Clapperboard, Ear, Image as ImageIcon, Camera, Video, Brain, ExternalLink,
+  FileText, FilePen, FilePlus2, FolderTree, Search, TerminalSquare, Globe, ListTodo, Files, ChevronRight, Check, X, Ban, ShieldQuestion, CircleDashed, CheckCircle2, Circle, Clapperboard, Ear, Image as ImageIcon, Camera, Video, Brain, Film, Scissors, ExternalLink,
 } from 'lucide-react';
 import MediaView from './MediaView.jsx';
 import { describeCall, diffLines, diffStats, parseTodos } from '@buddo/core';
@@ -25,6 +25,8 @@ const META = {
   web_search: { icon: Search, label: 'Web search' },
   screenshot: { icon: Camera, label: 'Screenshot' },
   record_video: { icon: Video, label: 'Record' },
+  make_video: { icon: Film, label: 'Make video' },
+  edit_video: { icon: Scissors, label: 'Edit video' },
   remember: { icon: Brain, label: 'Remember' },
 };
 

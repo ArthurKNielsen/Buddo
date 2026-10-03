@@ -5,9 +5,11 @@ export function electronBrowserProvider() {
   return {
     name: 'electron',
     available: () => true,
-    async open({ width, height }) {
+    async open({ width, height, init, transparent = false }) {
       const win = new BrowserWindow({
         show: false,
+        // Transparent only when asked (make_video overlays); normal pages keep the browser's white.
+        ...(transparent ? { transparent: true, backgroundColor: '#00000000' } : {}),
         width,
         height,
         useContentSize: true,
@@ -27,6 +29,12 @@ export function electronBrowserProvider() {
       win.webContents.on('did-fail-load', (_e, code, desc, url) => failed.push(`${desc} ${url}`));
       win.webContents.session.webRequest.onCompleted({ urls: ['*://*/*'] }, (d) => d.statusCode >= 400 && d.webContentsId === win.webContents.id && failed.push(`${d.statusCode} ${d.url}`));
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      // Run `init` before any page script (make_video's virtual clock), like Playwright's addInitScript.
+      if (init) {
+        win.webContents.debugger.attach('1.3');
+        await win.webContents.debugger.sendCommand('Page.enable');
+        await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: init });
+      }
       const run = (fn, arg) => win.webContents.executeJavaScript(`(${fn.toString()})(${JSON.stringify(arg ?? null)})`, true);
       return {
         logs,
@@ -42,7 +50,8 @@ export function electronBrowserProvider() {
             throw new Error(String(e.message || e).replace(/^.*Uncaught Error:\s*/, ''));
           }
         },
-        async screenshot({ full }) {
+        async screenshot({ full, format }) {
+          if (format === 'jpeg') return (await win.webContents.capturePage()).toJPEG(95);
           if (!full) return (await win.webContents.capturePage()).toPNG();
           const h = Math.min(8000, await run(() => document.documentElement.scrollHeight));
           win.setContentSize(width, h);

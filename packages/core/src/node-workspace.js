@@ -129,6 +129,8 @@ export function createNodeWorkspace(rootDir, { browserProvider, searxng = proces
       view_image: async ({ path: p }) => (await loadMedia()).viewImage(abs(p)),
       screenshot: async (o) => (await loadMedia()).screenshot({ ...o, root, provider: browserProvider }),
       record_video: async (o) => (await loadMedia()).recordVideo({ ...o, root, provider: browserProvider }),
+      make_video: async (o) => (await loadMedia()).makeVideo({ ...o, root, provider: browserProvider }),
+      edit_video: async (o) => (await loadMedia()).editVideo({ ...o, root, provider: browserProvider }),
     },
     webSearch: (q, o = {}) => webSearch(q, { searxng, ...o }),
     async fetchUrl(url) {

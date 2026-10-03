@@ -17,11 +17,24 @@ import { status, ensureAll, ensureModel, MODELS } from './models.js';
 export { status as modelStatus, ensureAll, ensureModel, MODELS, probe, FFMPEG };
 import { screenshot as shot, recordVideo as rec, browserAvailable, chromeProvider, parseActions } from './browser.js';
 export { browserAvailable, chromeProvider, parseActions };
+import { makeVideo as make, editVideo as edit } from './studio.js';
+import { transcribe } from './hearing.js';
+export { parseSteps, parseVideoSize, captionChunks, CLOCK } from './studio.js';
 
 /** Screenshot a page Buddo built (or any URL). opts: { target, size, full, actions, root, provider } */
 export const screenshot = (opts) => shot(opts);
 /** Record a page while doing actions; saves an mp4 and returns its key frames. */
 export const recordVideo = (opts) => rec({ ...opts, watch: (file, o) => watchVideo(file, o) });
+
+/** Make a video from an HTML page (UI elements, animations), rendered frame by frame. */
+export const makeVideo = (opts) => make({ ...opts, watch: (file, o) => watchVideo(file, o) });
+/** Edit videos: trim, cut, join, speed, crop, text, captions, music, logos, HTML overlays. */
+export const editVideo = (opts) =>
+  edit({
+    ...opts,
+    watch: (file, o) => watchVideo(file, o),
+    transcribe: async (file) => (await transcribe(await decodeAudio(file))).segments,
+  });
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|bmp|gif|tiff?|heic|avif)$/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff?)$/i;

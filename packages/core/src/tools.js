@@ -92,6 +92,28 @@ export const TOOLS = [
     example: '<tool:record_video>\n<target>index.html</target>\n<actions>\nclick Add task\ntype #input Buy milk\npress Enter\n</actions>\n</tool:record_video>',
   },
   {
+    name: 'make_video',
+    kind: 'write',
+    browser: true,
+    params: ['target', 'size', 'seconds', 'fps', 'audio', 'out', 'transparent'],
+    desc: 'Make a video out of UI elements: write an .html page (HTML/CSS/SVG/canvas, CSS animations, transitions, JS) first, then render it frame by frame into a video. Time is virtual, so every animation is smooth and exact. `size`: 1080p (default), 720p, vertical (1080×1920 for Shorts/Reels/TikTok), square or WIDTHxHEIGHT — design the page for that exact size (100vw × 100vh, no scrolling). `seconds`: length (default: until the last CSS animation ends; or set window.videoDuration = 8 in the page). For canvas or JS-driven scenes, define window.renderFrame = (t) => { …draw time t in seconds… }. `audio`: optional music/voice file from the project. `out`: .mp4 (default videos/NAME.mp4), .webm, .mov or .gif; `transparent`: true for a see-through .webm/.mov (page background must be transparent).',
+    example: '<tool:make_video>\n<target>intro.html</target>\n<size>vertical</size>\n<seconds>6</seconds>\n<out>videos/intro.mp4</out>\n</tool:make_video>',
+  },
+  {
+    name: 'edit_video',
+    kind: 'write',
+    media: true,
+    params: ['input', 'steps', 'out'],
+    desc: `Edit videos (and photos) with simple steps, one per line, applied in order. \`input\`: one or more files, one per line — several are joined in order (photos become 3s clips; change with "stills 4"). Steps (times are seconds or m:ss):
+  trim 0:05-0:20 (keep only that part) · cut 0:03-0:04.5 (remove a part) · speed 2 (0.5 = slow motion)
+  crop vertical|square|wide|WxH (fill + crop for Shorts/Reels) · fit vertical (whole frame on a blurred background) · rotate 90 · flip
+  text "Hello!" top|center|bottom [0:01-0:03] [size 72] [color yellow] [box] · title "Big Title" [0:00-0:02] · captions (auto subtitles from speech)
+  fade in 0.5 · fade out 1 · music song.mp3 [volume 0.3] [replace] · volume 1.5 · mute · color bw|vivid|warm|cool|bright|dark|vintage|cinematic
+  logo logo.png [top-right] [size 15%] · overlay sticker.png [center] [0:02-0:05] · overlay lower-third.html [0:02-0:07] (an animated HTML/CSS UI element with a transparent background, rendered on top of the video)
+\`out\`: .mp4 (default videos/NAME-edit.mp4), .webm, .mov or .gif. Never overwrites the input. Afterwards you see key frames of the result.`,
+    example: '<tool:edit_video>\n<input>clip.mp4</input>\n<steps>\ntrim 0:02-0:32\ncrop vertical\ntext "Wait for it…" top 0:00-0:03\ncaptions\nmusic beat.mp3 volume 0.25\nfade out 1\n</steps>\n<out>videos/clip-short.mp4</out>\n</tool:edit_video>',
+  },
+  {
     name: 'watch_video',
     kind: 'read',
     media: true,
@@ -135,7 +157,7 @@ export const TOOLS = [
 
 export const TOOL_MAP = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 // Params whose value can be large free-form text (may contain tag-like text).
-export const BIG_PARAMS = new Set(['content', 'old', 'new', 'items']);
+export const BIG_PARAMS = new Set(['content', 'old', 'new', 'items', 'steps']);
 
 const MAX_OUTPUT = 12000;
 
@@ -351,6 +373,28 @@ export async function executeTool(call, ctx) {
         });
         return { ok: true, output: r.text, images: r.images || [], display: r.display };
       }
+      case 'make_video': {
+        if (!workspace.media?.make_video) {
+          return { ok: false, output: 'Making videos needs the Buddo desktop app or `buddo web` with Chrome/Edge installed. You can still write the HTML page; tell the user how to open it.' };
+        }
+        const r = await workspace.media.make_video({
+          target: a.target || '',
+          size: a.size || '1080p',
+          seconds: a.seconds ? parseTime(a.seconds) : undefined,
+          fps: a.fps ? parseInt(a.fps, 10) : undefined,
+          audio: a.audio || undefined,
+          out: a.out || undefined,
+          transparent: /^(true|yes|1)$/i.test(String(a.transparent || '').trim()),
+        });
+        return { ok: true, output: r.text, images: r.images || [], display: r.display };
+      }
+      case 'edit_video': {
+        if (!workspace.media?.edit_video) {
+          return { ok: false, output: 'Editing videos needs the Buddo desktop app or `buddo web` (local mode). Tell the user.' };
+        }
+        const r = await workspace.media.edit_video({ inputs: need('input'), steps: a.steps || '', out: a.out || undefined });
+        return { ok: true, output: r.text, images: r.images || [], display: r.display };
+      }
       case 'remember': {
         const fact = need('fact').replace(/\s+/g, ' ').slice(0, 300);
         if (!ctx.onRemember) return { ok: false, output: 'Memory is turned off by the user.' };
@@ -415,6 +459,8 @@ export function describeCall(call) {
     case 'web_search': return `“${a.query}”${a.source && a.source !== 'web' ? ` on ${a.source}` : ''}`;
     case 'screenshot':
     case 'record_video': return `${a.target || 'index.html'}${a.size && a.size !== 'desktop' ? ` · ${a.size}` : ''}`;
+    case 'make_video': return `${a.target || 'index.html'} → ${a.out || 'video'}${a.size ? ` · ${a.size}` : ''}`;
+    case 'edit_video': return `${String(a.input || '').split('\n').map((s) => s.trim()).filter(Boolean).join(' + ')}${a.out ? ` → ${a.out}` : ''}`;
     case 'remember': return a.fact;
     case 'watch_video':
     case 'listen_audio': return a.path + (a.start || a.end ? ` (${a.start || 0}–${a.end || 'end'})` : '');

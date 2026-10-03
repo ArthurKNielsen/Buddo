@@ -74,6 +74,8 @@ export function serverWorkspace(info) {
       view_image: (args) => api('/api/media/view_image', { method: 'POST', body: args }),
       screenshot: (args) => api('/api/media/screenshot', { method: 'POST', body: args }),
       record_video: (args) => api('/api/media/record_video', { method: 'POST', body: args }),
+      make_video: (args) => api('/api/media/make_video', { method: 'POST', body: args }),
+      edit_video: (args) => api('/api/media/edit_video', { method: 'POST', body: args }),
     },
     webSearch: (query, o = {}) => api('/api/websearch', { method: 'POST', body: { query, ...o } }),
     rawUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}&token=${info.rawToken}`,

@@ -202,7 +202,8 @@ export function chromeProvider() {
   return {
     name: 'chrome',
     available: () => !!findChrome(),
-    async open({ width, height }) {
+    // init: script run before any page script (make_video's virtual clock).
+    async open({ width, height, init }) {
       const exe = findChrome();
       if (!exe) throw new Error('No Chrome, Edge or Chromium found. Install Google Chrome (or set BUDDO_CHROME to a browser path), or use the Buddo desktop app.');
       if (!pwBrowser) {
@@ -212,9 +213,11 @@ export function chromeProvider() {
       clearTimeout(idleTimer);
       const browser = await pwBrowser;
       const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
+      if (init) await ctx.addInitScript(init);
       const page = await ctx.newPage();
       const logs = [];
       const failed = [];
+      let cdp = null;
       page.on('console', (m) => ['error', 'warning'].includes(m.type()) && logs.push({ type: m.type(), text: m.text() }));
       page.on('pageerror', (e) => logs.push({ type: 'error', text: String(e.message || e) }));
       page.on('requestfailed', (r) => failed.push(r.url()));
@@ -227,7 +230,18 @@ export function chromeProvider() {
           await page.waitForTimeout(350);
         },
         eval: (fn, arg) => page.evaluate(fn, arg),
-        screenshot: ({ full }) => page.screenshot({ fullPage: !!full, type: 'png' }),
+        async screenshot({ full, transparent, format }) {
+          // make_video grabs hundreds of frames: JPEG is ~10× faster than PNG, and see-through
+          // frames use Chrome's fast PNG path (~5× faster than Playwright's).
+          if (format === 'jpeg') return page.screenshot({ fullPage: !!full, type: 'jpeg', quality: 95 });
+          if (!transparent || full) return page.screenshot({ fullPage: !!full, type: 'png', omitBackground: !!transparent });
+          if (!cdp) {
+            cdp = await page.context().newCDPSession(page);
+            await cdp.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
+          }
+          const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', optimizeForSpeed: true });
+          return Buffer.from(data, 'base64');
+        },
         close: async () => {
           await ctx.close().catch(() => {});
           // Keep the browser warm for a minute so follow-up screenshots are instant.
@@ -245,7 +259,7 @@ export function chromeProvider() {
 
 // ───────── Public API ─────────
 
-async function resolveTarget(target, root) {
+export async function resolveTarget(target, root) {
   let t = String(target || '').trim();
   if (/^https?:\/\//i.test(t) || /^file:/i.test(t)) return t;
   if (/^localhost(:\d+)?/i.test(t)) return `http://${t}`;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getWorkspace } from '../lib/engine.js';
 import { Eye, Mic, AudioLines, Scissors, Zap, AlertTriangle, CheckCircle2, MousePointerClick, Film } from 'lucide-react';
 
 const fmt = (s) => {
@@ -100,6 +101,13 @@ function PageReport({ d }) {
   );
 }
 
+/** Play a video Buddo made or edited, straight from the project folder. */
+function MadeVideo({ path }) {
+  const url = getWorkspace()?.rawUrl?.(path);
+  if (!url) return null;
+  return /\.gif$/i.test(path) ? <img className="media-player" src={url} alt={path} /> : <video className="media-player" src={url} controls playsInline preload="metadata" />;
+}
+
 export default function MediaView({ d }) {
   const [zoom, setZoom] = useState(false);
   const m = d.meta || {};
@@ -137,6 +145,7 @@ export default function MediaView({ d }) {
           <Zap size={11} className="speed" /> <span className="speed">{(d.ms / 1000).toFixed(1)}s</span>
         </span>
       </div>
+      {d.kind === 'made' && <MadeVideo path={d.saved} />}
       {d.sheet && (
         <img className={'media-sheet' + (zoom ? ' zoom' : '')} style={zoom ? {} : { maxHeight: 300, objectFit: 'contain' }} src={`data:image/jpeg;base64,${d.sheet}`} onClick={() => setZoom(!zoom)} alt="Key frames" />
       )}

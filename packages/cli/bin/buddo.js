@@ -648,7 +648,7 @@ function renderer() {
   };
 
   startSpinner();
-  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos', watch_video: 'Watch', listen_audio: 'Listen', view_image: 'Look', web_search: 'Search', screenshot: 'Screenshot', record_video: 'Record', remember: 'Remember' };
+  const toolNames = { list_dir: 'List', read_file: 'Read', search: 'Search', glob: 'Glob', write_file: 'Write', edit_file: 'Update', run_command: 'Bash', fetch_url: 'Fetch', todo: 'Todos', watch_video: 'Watch', listen_audio: 'Listen', view_image: 'Look', web_search: 'Search', screenshot: 'Screenshot', record_video: 'Record', make_video: 'Make video', edit_video: 'Edit video', remember: 'Remember' };
 
   return {
     note(text) {
@@ -748,6 +748,8 @@ function renderer() {
             const issues = [r.overflowX && `overflow ${r.overflowX}px`, r.brokenImages?.length && `${r.brokenImages.length} broken image(s)`, d.logs?.some((l) => l.type === 'error') && 'console errors'].filter(Boolean);
             console.log(`  ${C.dim('⎿')} ${d.kind === 'screenshot' ? `Screenshot ${d.size.join('×')}` : `Recorded ${d.saved}`} in ${C.green((d.ms / 1000).toFixed(1) + 's')} · ${issues.length ? C.yellow('⚠ ' + issues.join(', ')) : C.green('✓ no issues')}`);
             (d.steps || []).slice(0, 6).forEach((s) => console.log(`     ${C.gray(s)}`));
+          } else if (d?.type === 'media' && d.kind === 'made') {
+            console.log(`  ${C.dim('⎿')} 🎬 Saved ${C.bold(d.saved)}${d.meta?.duration ? ` · ${d.meta.duration.toFixed(1)}s ${d.meta.width}×${d.meta.height}` : ''} in ${C.green((d.ms / 1000).toFixed(1) + 's')}`);
           } else if (d?.type === 'media') {
             const secs = C.green(`${(d.ms / 1000).toFixed(1)}s`);
             if (d.kind === 'video') {

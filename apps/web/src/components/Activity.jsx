@@ -5,13 +5,13 @@ import { useStore } from '../lib/store.js';
 
 const TOOL_WORDS = {
   list_dir: 'folder listing', read_file: 'file', search: 'search results', glob: 'file list', write_file: 'save', edit_file: 'edit',
-  run_command: 'command output', fetch_url: 'web page', web_search: 'search results', screenshot: 'screenshot', record_video: 'recording',
+  run_command: 'command output', fetch_url: 'web page', web_search: 'search results', screenshot: 'screenshot', record_video: 'recording', make_video: 'video', edit_video: 'video',
   watch_video: 'video', listen_audio: 'audio', view_image: 'image', remember: 'memory', todo: 'task list',
 };
 const DOING = {
   list_dir: 'Looking through a folder', read_file: 'Reading a file', search: 'Searching the code', glob: 'Finding files', write_file: 'Saving a file',
   edit_file: 'Editing a file', run_command: 'Running a command', fetch_url: 'Opening a web page', web_search: 'Searching the web', screenshot: 'Taking a screenshot',
-  record_video: 'Recording a video', watch_video: 'Watching a video', listen_audio: 'Listening to audio', view_image: 'Looking at an image', remember: 'Saving a memory', todo: 'Updating the task list',
+  record_video: 'Recording a video', make_video: 'Making a video', edit_video: 'Editing a video', watch_video: 'Watching a video', listen_audio: 'Listening to audio', view_image: 'Looking at an image', remember: 'Saving a memory', todo: 'Updating the task list',
 };
 
 const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0));

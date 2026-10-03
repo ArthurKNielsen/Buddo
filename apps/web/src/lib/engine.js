@@ -473,7 +473,7 @@ async function syncProfile() {
   });
 }
 
-// Only offer screenshot / record_video when the server has a browser to drive.
+// Only offer screenshot / record_video / make_video when the server has a browser to drive.
 let browserOk = null;
 async function makeServerWorkspace(info) {
   const ws = serverWorkspace(info);
@@ -481,6 +481,7 @@ async function makeServerWorkspace(info) {
   if (!(await browserOk)) {
     delete ws.media.screenshot;
     delete ws.media.record_video;
+    delete ws.media.make_video;
   }
   return ws;
 }

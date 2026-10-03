@@ -119,7 +119,14 @@ export function splitThinking(raw) {
     visible += rest.slice(0, s);
     const e = rest.indexOf('</think>', s);
     if (e === -1) {
-      thinking += rest.slice(s + 7);
+      // Small models sometimes forget </think>: a tool call inside still counts as an action.
+      const inner = rest.slice(s + 7);
+      const t = inner.search(/<tool:[a-z_]+\s*>|<tool_call>/);
+      if (t !== -1) {
+        thinking += inner.slice(0, t);
+        visible += inner.slice(t);
+        // Hold back a half-written closing tag ("</thi") so it never shows up in streamed thoughts.
+      } else thinking += inner.replace(/<\/?[a-z_:]{0,10}$/i, '');
       break;
     }
     thinking += rest.slice(s + 7, e);

@@ -26,7 +26,7 @@ export function availableTools(workspace, { lite = false, profile } = {}) {
 }
 
 /** Compact prompt (~9× shorter) for tiny models on phones, where reading the prompt is the slow part. */
-function litePrompt({ workspace, mode, tree, memory, profile }) {
+function litePrompt({ workspace, mode, tree, memory, profile, thinkAloud }) {
   const tools = availableTools(workspace, { lite: true, profile });
   const plan = mode === 'plan';
   return `You are a helpful coding assistant working in the user's project "${workspace?.name || 'project'}".
@@ -46,13 +46,13 @@ Optional tools (write ONE, then stop and wait for the result):
 <path>index.html</path>
 </tool:read_file>
 Tools: ${tools.map((t) => `${t.name}(${t.params.slice(0, 3).join(', ')})`).join(' · ')}
-Rules: read a file before changing it. Keep explanations short.
+Rules: read a file before changing it. Keep explanations short.${thinkAloud ? '\nStart every reply with one short sentence of planning inside <think></think>.' : ''}
 ${tree ? `\nFiles:\n${tree.split('\n').slice(0, 25).join('\n')}\n` : ''}${memory ? `\nProject notes:\n${memory.slice(0, 600)}\n` : ''}
 ${personalityPrompt(profile, { lite: true })}`;
 }
 
-export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', memory = '', date = new Date(), extra = '', vision = false, profile, lite = false } = {}) {
-  if (lite) return litePrompt({ workspace, mode, tree, memory, profile });
+export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false } = {}) {
+  if (lite) return litePrompt({ workspace, mode, tree, memory, profile, thinkAloud });
   const exec = workspace?.capabilities?.exec;
   const media = !!workspace?.media;
   const browser = !!workspace?.media?.screenshot;
@@ -73,7 +73,7 @@ You act by writing ONE tool call in this exact XML format, then you STOP and wai
 Parameter values are raw text — never escape quotes or newlines, never wrap them in JSON.
 The result arrives in the next message as <tool_result>. Never write a <tool_result> yourself and never guess what a tool returned.
 Only one tool call per message. When the task is complete, reply WITHOUT any tool call.
-
+${thinkAloud ? '\nThink out loud: start EVERY message with a short plan inside <think>...</think> (1-3 sentences: what you know so far and what you will do next and why), then write your tool call or answer. The user sees these thoughts.\n' : ''}
 # Tools
 ${tools}
 

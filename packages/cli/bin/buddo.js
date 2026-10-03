@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   runAgent, gatherContext, ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, SLASH_COMMANDS, parseSlash,
-  COMPACT_PROMPT, describeCall, diffLines, diffHunks, diffStats, contextTokens, isTinyModel, learnAboutUser, VIBES,
+  COMPACT_PROMPT, describeCall, diffLines, diffHunks, diffStats, contextTokens, isTinyModel, thinksNatively, learnAboutUser, VIBES,
 } from '@buddo/core';
 import { createNodeWorkspace, loadProfile, saveProfile, rememberFact } from '@buddo/core/node';
 
@@ -83,6 +83,8 @@ function parseArgs(argv) {
     else if (a === '-C' || a === '--cwd') o.cwd = next();
     else if (a === '--ctx') o.ctx = Number(next());
     else if (a === '--lite') o.lite = true;
+    else if (a === '--think') o.think = true;
+    else if (a === '--no-think') o.think = false;
     else if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-v' || a === '--version') o.version = true;
     else o._.push(a);
@@ -109,6 +111,7 @@ ${C.bold('Options')}
   --mode ask|auto|yolo|plan   permission mode (default ask)
   --ctx <tokens>              context window (default 16384)
   --lite                      short prompt + small context (auto for tiny models)
+  --think / --no-think        ask the model to think out loud (default: on, off for tiny models)
   -C, --cwd <dir>             workspace folder
   --port <n>                  port for \`buddo web\` (default 4141)
 `;
@@ -286,6 +289,7 @@ async function cmdChat(initial) {
   let vision = !!(await provider.modelInfo?.(model).catch(() => null))?.vision;
   let profile = loadProfile();
   const isLite = () => !!args.lite || isTinyModel(model);
+  const isThinkAloud = () => !thinksNatively(model) && (args.think ?? !isLite());
   const onRemember = (fact) => {
     const ok = rememberFact(fact, 'chat');
     profile = loadProfile();
@@ -301,7 +305,7 @@ async function cmdChat(initial) {
     messages.push({ role: 'user', content: prompt });
     let out = '';
     await runAgent({
-      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(), callbacks: { onRemember },
+      provider, model, workspace, messages, mode: args.mode || 'auto', contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(), thinkAloud: isThinkAloud(), callbacks: { onRemember },
       onEvent: (e) => {
         if (e.type === 'text') out += e.delta;
         if (e.type === 'tool-start') out = '';
@@ -446,7 +450,7 @@ async function cmdChat(initial) {
     const started = Date.now();
     let usage;
     await runAgent({
-      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(),
+      provider, model, workspace, messages, mode: runMode, signal: ctrl.signal, contextBudget: isLite() ? 4096 : ctxBudget, context: projectCtx, vision, profile, lite: isLite(), thinkAloud: isThinkAloud(),
       onEvent: (e) => {
         if (e.type === 'usage') usage = e;
         r.event(e, quiet);
@@ -595,8 +599,35 @@ function renderer() {
       .replace(/^(\s*)[-*] /, (_, s) => s + C.violet('• '));
   };
 
+  // Thoughts stream in dim italics under a "✻ Thinking" header.
+  let thought = null; // text of the current line
+  const writeThought = (delta) => {
+    stopSpinner();
+    if (thought === null) {
+      flush();
+      process.stdout.write(`\n${C.dim('✻ Thinking')}\n  `);
+      thought = '';
+      delta = delta.replace(/^\s+/, '');
+    }
+    delta.split('\n').forEach((part, i) => {
+      if (i > 0) {
+        if (thought) process.stdout.write('\n  ');
+        thought = '';
+      }
+      if (part) process.stdout.write(C.dim(C.italic(part)));
+      thought += part;
+    });
+  };
+  const endThought = () => {
+    if (thought === null) return;
+    process.stdout.write('\n');
+    thought = null;
+  };
+
   let started = false;
   const writeText = (delta) => {
+    if (!started && !line) delta = delta.replace(/^\s+/, ""); // no empty bullets for stray newlines
+    if (!delta) return;
     stopSpinner();
     if (!started) {
       process.stdout.write('\n' + C.violet('⏺ '));
@@ -627,17 +658,27 @@ function renderer() {
     pauseSpinner: stopSpinner,
     event(e, quiet) {
       switch (e.type) {
-        case 'step':
-          startSpinner(verb);
+        case 'step': {
+          endThought();
+          const k = e.promptTokens >= 1000 ? `${(e.promptTokens / 1000).toFixed(1)}k` : e.promptTokens;
+          startSpinner(`${e.after ? `Reading the ${e.after} result` : 'Reading your message'} (${k} tokens)`);
+          break;
+        }
+        case 'raw':
+          // First token: the model has finished reading (just relabel; never draw over streamed thoughts).
+          if (label.startsWith('Reading')) label = 'Writing';
           break;
         case 'thinking':
           thinkingChars += e.delta.length;
-          startSpinner('Thinking');
+          if (quiet) startSpinner('Thinking');
+          else writeThought(e.delta);
           break;
         case 'text':
+          endThought();
           if (!quiet) writeText(e.delta);
           break;
         case 'tool-preparing':
+          endThought();
           flush();
           startSpinner(e.name === 'write_file' || e.name === 'edit_file' ? 'Writing code' : 'Working');
           break;

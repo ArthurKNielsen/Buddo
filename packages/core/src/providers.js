@@ -198,3 +198,6 @@ export const RECOMMENDED_MODELS = [
   { id: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder 1.5B', size: '1.0 GB', note: 'Pocket-size, very fast ⚡', tag: 'Fast' },
   { id: 'qwen2.5-coder:3b', label: 'Qwen 2.5 Coder 3B', size: '1.9 GB', note: 'For low-RAM machines', tag: 'Light' },
 ];
+
+/** Models that already reason in their own thinking channel (no need to ask them to think out loud). */
+export const thinksNatively = (id = '') => /qwen3(?![-.]?coder)|deepseek-r1|\br1\b|gpt-oss|qwq|magistral|reason|think|exaone-deep|cogito/i.test(id);

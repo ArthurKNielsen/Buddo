@@ -30,6 +30,7 @@ Buddo is an open-source alternative to paid AI coding agents. It explores your c
 | 😎 **Personality that learns you** | Pick a vibe (Friendly, Gen Z, Professional, Hype coach, Teacher, Minimal), name, reply length and emoji. Buddo remembers lasting facts about you (`remember` tool + quiet learning after chats). See, add or delete memories in **Settings → Personality**, `/memory`, `/vibe`. Shared between app, desktop and CLI (`~/.buddo/profile.json`). |
 | ⚡ **Pocket mode (iPhone)** | Tiny in-browser models (0.5B–1B, ~200–700 MB) plus a ~9× shorter "lite" prompt and small context, so it's usable on phones. Auto-selected on mobile. |
 | 🖥️ **Integrated terminal** | Watch commands Buddo runs, or run your own. |
+| 🧠 **See what it's doing** | A live status line says what the model is actually doing ("Reading your message · 2.4k tokens", "Writing index.html", "Waiting for your OK"). Tap **Details** for every step: how long it read, what it wrote (raw, including thoughts and tool calls), speed. **Think out loud** (Settings → Engine) makes normal models write a short plan before each step; thinking models show their own reasoning. CLI: `--think` / `--no-think`. |
 | 👀 **Live preview** | Building a website? It renders next to the chat as Buddo writes it. |
 | ✅ **Live task list** | For bigger jobs Buddo writes a plan and checks items off as it goes. |
 | ⚡ **Slash commands** | `/init` `/review` `/test` `/fix` `/explain` `/commit` `/plan` `/refactor` `/docs` `/scaffold` `/compact` `/model` `/mode` `/clear` |

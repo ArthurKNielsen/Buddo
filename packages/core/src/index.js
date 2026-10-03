@@ -4,7 +4,7 @@ export { runAgent, gatherContext, compactForModel, contextTokens, estimateTokens
 export { buildSystemPrompt, availableTools } from './prompt.js';
 export { webSearch, formatSearch, parseDdgHtml, parseDdgLite, parseMojeek } from './websearch.js';
 export { VIBES, VERBOSITY, EMOJI, DEFAULT_PROFILE, normalizeProfile, addMemory, personalityPrompt } from './personality.js';
-export { ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, guessVision, isTinyModel } from './providers.js';
+export { ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, guessVision, isTinyModel, thinksNatively } from './providers.js';
 export { diffLines, diffStats, diffHunks } from './diff.js';
 export { globToRegExp, matchGlob, searchFiles, formatTree, htmlToText, IGNORED_DIRS, isTextLike } from './tree.js';
 export { SLASH_COMMANDS, parseSlash, COMPACT_PROMPT } from './commands.js';

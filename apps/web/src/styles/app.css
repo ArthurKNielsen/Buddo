@@ -253,6 +253,23 @@
 }
 @keyframes orb { 0%, 100% { transform: scale(0.8); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
 
+.activity { margin-top: 4px; }
+.activity-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 28px; font-size: 13.5px; font-weight: 500; text-align: left; flex-wrap: wrap; row-gap: 2px; }
+.activity-head .faint { font-size: 12px; font-weight: 400; }
+.act-step-chip { padding: 0 6px; border: 1px solid var(--border); border-radius: 99px; font-size: 11px !important; }
+.act-toggle { display: inline-flex; align-items: center; gap: 2px; }
+.activity-head:hover .act-toggle { color: var(--text-2); }
+.act-hint { font-size: 12px; margin: 0 0 4px 22px; }
+.act-log { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; padding-left: 10px; border-left: 2px solid var(--border-2); }
+.act-step-head { display: flex; align-items: baseline; gap: 6px; width: 100%; text-align: left; font-size: 12px; color: var(--text-3); padding: 2px 0; }
+.act-step-head:hover { color: var(--text-2); }
+.act-step-head .row { align-self: center; }
+.act-n { font-weight: 600; color: var(--text-2); flex: none; }
+.act-step.live .act-n { color: var(--accent); }
+.act-sum { min-width: 0; }
+.act-raw { margin: 4px 0 6px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--code-bg); border: 1px solid var(--border); font: 11.5px/1.55 var(--mono); color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+.act-thought { color: var(--text-3); font-style: italic; }
+
 .thinking { border-left: 2px solid var(--border-2); padding-left: 12px; }
 .thinking-head { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-3); height: 26px; }
 .thinking-head:hover { color: var(--text-2); }

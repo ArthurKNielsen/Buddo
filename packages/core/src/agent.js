@@ -111,9 +111,10 @@ export async function runAgent({
   profile,
   lite = false,
   autoSaveCode = true,
+  thinkAloud = false,
 }) {
   const ctx = context || (await gatherContext(workspace));
-  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, ...ctx });
+  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx });
   const alwaysAllowed = new Set();
   let wroteFiles = false;
   let nudged = false;
@@ -148,7 +149,6 @@ export async function runAgent({
   let id = 0;
 
   for (let step = 0; step < maxSteps; step++) {
-    onEvent({ type: 'step', step });
     const ctrl = linkSignal(signal);
     let raw = '';
     let sentProse = 0;
@@ -162,9 +162,15 @@ export async function runAgent({
     const wire = [{ role: 'system', content: system }, ...compactForModel(messages, contextBudget)].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
     );
+    // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").
+    const prev = messages[messages.length - 1];
+    const after = prev?.role === 'user' && prev.content.startsWith('<tool_result') ? /name="([^"]+)"/.exec(prev.content)?.[1] : null;
+    onEvent({ type: 'step', step, promptTokens: contextTokens(wire), after });
 
     try {
       for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: { num_ctx: contextBudget, temperature } })) {
+        // Everything the model writes, unfiltered (for "see what it's doing" views).
+        if (chunk.type === 'thinking' || chunk.type === 'text') onEvent({ type: 'raw', delta: chunk.text, thinking: chunk.type === 'thinking' });
         if (chunk.type === 'thinking') {
           nativeThinking += chunk.text;
           onEvent({ type: 'thinking', delta: chunk.text });
@@ -249,7 +255,7 @@ export async function runAgent({
 
       // The model answered with plain code blocks instead of tool calls → save them as files.
       if (autoSaveCode && !wroteFiles && mode !== 'plan' && workspace.write) {
-        const files = extractCodeFiles(text).filter((f) => wantsCode || !f.inferred);
+        const files = extractCodeFiles(text || a.thinking).filter((f) => wantsCode || !f.inferred);
         const saved = [];
         for (const f of files.slice(0, 12)) {
           const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true };

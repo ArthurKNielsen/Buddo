@@ -115,6 +115,22 @@ export default function SettingsModal() {
                 <span className="hint">A ~9× shorter prompt and smaller context so tiny models answer fast. Auto turns it on for Pocket models.</span>
               </div>
               <div className="field">
+                <label>Think out loud</label>
+                <div className="seg">
+                  {[
+                    ['auto', 'Auto'],
+                    ['on', 'Always'],
+                    ['off', 'Never'],
+                  ].map(([id, l]) => (
+                    <button key={id} className={s.thinkAloud === id ? 'on' : ''} onClick={() => setSettings({ thinkAloud: id })}>
+                      {s.thinkAloud === id && <motion.div layoutId="think-pill" className="seg-pill" />}
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <span className="hint">Models without a thinking mode write a short plan before each step, so you can see what they're thinking. Auto: on for normal models, off for Pocket models (it costs them a few seconds). Thinking models (Qwen 3, gpt-oss, DeepSeek R1) always show their thoughts.</span>
+              </div>
+              <div className="field">
                 <label>Creativity (temperature) · {s.temperature.toFixed(2)}</label>
                 <input type="range" min={0} max={1} step={0.05} value={s.temperature} onChange={(e) => setSettings({ temperature: +e.target.value })} className="range" />
               </div>
@@ -170,9 +186,16 @@ export default function SettingsModal() {
               <div className="field row" style={{ flexDirection: 'row' }}>
                 <div style={{ flex: 1 }}>
                   <label>Show thinking</label>
-                  <div className="hint">Display the reasoning of thinking models (Qwen 3, gpt-oss…)</div>
+                  <div className="hint">Keep the model's thoughts in the chat after it finishes (they always show live)</div>
                 </div>
                 <Toggle on={s.showThinking} onChange={(v) => setSettings({ showThinking: v })} />
+              </div>
+              <div className="field row" style={{ flexDirection: 'row' }}>
+                <div style={{ flex: 1 }}>
+                  <label>Show live details</label>
+                  <div className="hint">Open the step-by-step view of everything the model reads and writes while it works (you can also tap the status line)</div>
+                </div>
+                <Toggle on={s.showActivity} onChange={(v) => setSettings({ showActivity: v })} />
               </div>
             </>
           )}

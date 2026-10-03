@@ -1,12 +1,13 @@
-import { memo, useState, useEffect } from 'react';
+import { memo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, ChevronRight, Copy, Check, RotateCcw, AlertTriangle, Square, Paperclip, Info } from 'lucide-react';
+import { Brain, ChevronRight, Copy, Check, RotateCcw, AlertTriangle, Square, Paperclip, Info, Activity } from 'lucide-react';
 import { renderMarkdown, handleCopyClick } from '../lib/markdown.js';
 import { useStore } from '../lib/store.js';
 import { retryLast } from '../lib/runner.js';
 import ToolCard from './ToolCard.jsx';
 import LiveCode from './LiveCode.jsx';
 import Logo from './Logo.jsx';
+import ActivityBar, { ActivityLog } from './Activity.jsx';
 
 const enter = {
   initial: { opacity: 0, y: 12 },
@@ -20,7 +21,14 @@ const Markdown = memo(function Markdown({ text }) {
 
 function Thinking({ part, live }) {
   const show = useStore((s) => s.settings.showThinking);
-  const [open, setOpen] = useState(false);
+  // Short thoughts (a quick plan) stay visible; long reasoning collapses when done.
+  const [openState, setOpen] = useState(null);
+  const open = openState ?? (part.done && part.text.trim().length < 400);
+  const textRef = useRef(null);
+  const following = live && !part.done;
+  useEffect(() => {
+    if (following && textRef.current) textRef.current.scrollTop = textRef.current.scrollHeight;
+  }, [part.text, following]);
   const secs = Math.max(1, Math.round(((part.endedAt || Date.now()) - part.startedAt) / 1000));
   if (!show && part.done) return null;
   return (
@@ -33,7 +41,7 @@ function Thinking({ part, live }) {
         </motion.span>
       </button>
       <AnimatePresence initial={false}>
-        {(open || (live && !part.done && show)) && (
+        {(open || following) && (
           <motion.div
             className="thinking-body"
             initial={{ height: 0, opacity: 0 }}
@@ -41,33 +49,14 @@ function Thinking({ part, live }) {
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25 }}
           >
-            <div className="thinking-text">{part.text.trim().slice(open ? 0 : -600)}</div>
+            <div className="thinking-text" ref={textRef}>
+              {part.text.trim()}
+              {following && <span className="live-caret" />}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-const VERBS = ['Thinking', 'Cooking', 'Pondering', 'Brewing', 'Scheming', 'Crafting', 'Vibing', 'Noodling'];
-
-function Working({ item }) {
-  const [verb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)]);
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((x) => x + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = Math.floor((Date.now() - item.startedAt) / 1000);
-  const label = item.preparing ? (item.preparing === 'write_file' || item.preparing === 'edit_file' ? 'Writing code' : 'Preparing tool') : verb;
-  return (
-    <motion.div className="working" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <span className="working-orb" />
-      <span className="shimmer">{label}…</span>
-      <span className="faint">
-        {secs}s · <kbd>esc</kbd> to stop
-      </span>
-    </motion.div>
   );
 }
 
@@ -90,13 +79,7 @@ function CopyButton({ text }) {
 
 function Assistant({ item, sessionId, last }) {
   const running = useStore((s) => s.running?.sessionId === sessionId) && item.status === 'streaming';
-  const lastPart = item.parts[item.parts.length - 1];
-  const showWorking =
-    running &&
-    (item.preparing ||
-      !lastPart ||
-      (lastPart.type === 'tool' && ['done', 'error', 'denied'].includes(lastPart.status)) ||
-      (lastPart.type === 'thinking' && lastPart.done));
+  const [showLog, setShowLog] = useState(false);
   const text = item.parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n\n');
   const secs = item.endedAt ? ((item.endedAt - item.startedAt) / 1000).toFixed(1) : null;
 
@@ -119,7 +102,15 @@ function Assistant({ item, sessionId, last }) {
             <ToolCard key={p.call.id} part={p} sessionId={sessionId} />
           ),
         )}
-        {running && item.live ? <LiveCode live={item.live} /> : showWorking && <Working item={item} />}
+        {running && item.live && <LiveCode live={item.live} />}
+        {running && <ActivityBar item={item} />}
+        <AnimatePresence initial={false}>
+          {!running && showLog && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden' }}>
+              <ActivityLog steps={item.steps} />
+            </motion.div>
+          )}
+        </AnimatePresence>
         {item.status === 'error' && (
           <motion.div className="msg-error" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             <AlertTriangle size={15} />
@@ -139,6 +130,11 @@ function Assistant({ item, sessionId, last }) {
         {!running && item.status !== 'streaming' && (
           <div className="msg-meta">
             {text && <CopyButton text={text} />}
+            {item.steps?.length > 0 && (
+              <button className={'icon-btn sm' + (showLog ? ' on' : '')} title="What the model did, step by step" onClick={() => setShowLog(!showLog)}>
+                <Activity size={13} />
+              </button>
+            )}
             {last && (
               <button className="icon-btn sm" title="Retry" onClick={retryLast}>
                 <RotateCcw size={13} />

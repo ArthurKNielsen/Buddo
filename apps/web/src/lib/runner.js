@@ -1,6 +1,6 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -123,7 +123,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   let scheduled = false;
   const flush = () => {
     scheduled = false;
-    S().updateItem(sid, draft.id, { ...draft, parts: draft.parts.map((p) => ({ ...p })) });
+    S().updateItem(sid, draft.id, { ...draft, parts: draft.parts.map((p) => ({ ...p })), steps: draft.steps?.map((x) => ({ ...x })) });
   };
   const schedule = () => {
     if (!scheduled) {
@@ -150,11 +150,28 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     contextBudget: lite ? 4096 : settings.engine === 'webllm' ? 8192 : settings.ctx,
     vision,
     lite,
+    thinkAloud: thinkAloud(settings),
     profile: st.profile,
     temperature: settings.temperature,
     context,
     onEvent: (e) => {
+      const step = draft.steps?.[draft.steps.length - 1];
       switch (e.type) {
+        case 'step':
+          draft.steps = [...(draft.steps || []), { n: e.step + 1, startedAt: Date.now(), promptTokens: e.promptTokens, after: e.after, raw: '' }];
+          draft.phase = { kind: 'reading', tokens: e.promptTokens, after: e.after, at: Date.now() };
+          break;
+        case 'raw':
+          if (step) {
+            step.firstAt ??= Date.now();
+            if (e.thinking) step.thought = (step.thought || '') + e.delta;
+            else step.raw += e.delta;
+          }
+          if (draft.phase?.kind === 'reading') draft.phase = { kind: 'writing', at: Date.now() };
+          break;
+        case 'permission':
+          draft.phase = { kind: 'waiting', at: Date.now() };
+          break;
         case 'thinking':
           if (last()?.type === 'thinking' && !last().done) last().text += e.delta;
           else draft.parts.push({ type: 'thinking', text: e.delta, startedAt: Date.now() });
@@ -174,6 +191,9 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           draft.preparing = e.name;
           break;
         case 'tool-start':
+          if (step && !step.endedAt) step.endedAt = Date.now();
+          if (step && !e.call.auto) step.tool = e.call.name;
+          draft.phase = { kind: 'tool', name: e.call.name, at: Date.now() };
           draft.preparing = null;
           draft.live = null;
           if (last()?.type === 'thinking') Object.assign(last(), { done: true, endedAt: Date.now() });
@@ -195,6 +215,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           break;
         case 'usage':
           draft.usage = { prompt: e.prompt, completion: e.completion, tps: e.tps };
+          if (step) Object.assign(step, { endedAt: Date.now(), usage: { prompt: e.prompt, completion: e.completion, tps: e.tps } });
           break;
         case 'error':
           draft.status = 'error';
@@ -253,6 +274,13 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   draft.preparing = null;
   draft.live = null;
   for (const p of draft.parts) if (p.type === 'thinking' && !p.done) Object.assign(p, { done: true, endedAt: Date.now() });
+  // Keep the activity log, but cap what gets saved with the chat.
+  draft.phase = null;
+  for (const x of draft.steps || []) {
+    x.endedAt ??= Date.now();
+    if (x.raw.length > 12000) x.raw = x.raw.slice(0, 6000) + '\n…\n' + x.raw.slice(-6000);
+    if (x.thought?.length > 8000) x.thought = x.thought.slice(0, 4000) + '\n…\n' + x.thought.slice(-4000);
+  }
   flush();
   S().patchSession(sid, { history: result.messages });
   useStore.setState({ running: null, permission: null });

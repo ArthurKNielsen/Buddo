@@ -18,6 +18,8 @@ export const DEFAULT_SETTINGS = {
   theme: 'dark',
   accent: 'violet',
   showThinking: true,
+  thinkAloud: 'auto', // auto | on | off — ask models without a thinking mode to think out loud
+  showActivity: false, // keep the live "what the model is writing" console open
   sandboxName: 'sandbox',
   onboarded: false,
 };

@@ -1,6 +1,6 @@
 // Connects the UI to a model engine and a workspace.
 
-import { ollamaProvider, openaiCompatProvider } from '@buddo/core';
+import { ollamaProvider, openaiCompatProvider, thinksNatively } from '@buddo/core';
 import { useStore } from './store.js';
 import {
   detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess,
@@ -43,6 +43,13 @@ export const WEBLLM_MODELS = [
 /** Tiny models (any engine) get the short "lite" prompt and a small context so they stay fast. */
 export const isPocketModel = (id = '') => WEBLLM_MODELS.some((m) => m.pocket && m.id === id) || /(^|[:\-_])(0\.5b|360m|135m|0\.6b|1b|1\.1b)\b/i.test(id);
 export const isMobile = () => typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)));
+/** Ask the model to think out loud? Auto: yes for normal models without their own thinking mode, no for tiny ones. */
+export function thinkAloud(settings = useStore.getState().settings) {
+  const model = currentModel(settings);
+  if (thinksNatively(model) || settings.thinkAloud === 'off') return false;
+  return settings.thinkAloud === 'on' || !liteMode(settings);
+}
+
 export function liteMode(settings = useStore.getState().settings) {
   if (settings.lite === 'on') return true;
   if (settings.lite === 'off') return false;

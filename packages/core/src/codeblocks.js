@@ -22,11 +22,40 @@ function nameFromFirstLine(code) {
   return m ? m[1] : null;
 }
 
+const FENCE_LINE = /^\s*(`{3,}|~{3,})[\w+#.:-]*\s*$/;
+
+/**
+ * Small models sometimes paste a whole HTML page WITHOUT a code fence (and may fence only bits of it,
+ * like the <script>). Wrap such a page in one ```html block so it shows as code and can be saved.
+ * `partial` also wraps a page that hasn't reached </html> yet (for streaming display).
+ */
+export function fenceRawHtml(text = '', { partial = false } = {}) {
+  const start = text.search(/<!doctype html|<html[\s>]/i);
+  if (start === -1) return text;
+  // Already inside a fenced block? (odd number of fence lines before it)
+  const before = text.slice(0, start).split('\n').filter((l) => /^\s*(`{3,}|~{3,})/.test(l)).length;
+  if (before % 2 === 1) return text;
+  const close = text.toLowerCase().lastIndexOf('</html>');
+  let end;
+  if (close > start) end = close + 7;
+  else if (partial || /<body/i.test(text.slice(start))) end = text.length;
+  else return text;
+  const page = text
+    .slice(start, end)
+    .split('\n')
+    .filter((l) => !FENCE_LINE.test(l))
+    .join('\n')
+    .trim();
+  const pre = text.slice(0, start).replace(/\s+$/, '');
+  return `${pre}${pre ? '\n\n' : ''}\`\`\`html\n${page}\n\`\`\`\n${text.slice(end)}`;
+}
+
 /**
  * Find code blocks that should become files.
  * Returns [{ path, content, lang, inferred, truncated }].
  */
 export function extractCodeFiles(text, { wantsCode = false } = {}) {
+  text = fenceRawHtml(text);
   const out = [];
   const lines = text.split('\n');
   let i = 0;

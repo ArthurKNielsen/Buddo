@@ -110,3 +110,21 @@ test('short script with its name after the block (real Pocket model reply)', () 
   const two = '```js\nconsole.log(1)\nconsole.log(2)\nconsole.log(3)\nconsole.log(4)\n```\nNow create `style.css`:\n```css\nbody { margin: 0 }\n```';
   assert.equal(extractCodeFiles(two, { wantsCode: true })[0].path, 'script.js');
 });
+
+test('a whole HTML page pasted without a code fence is saved (real Pocket model reply)', async () => {
+  const { fenceRawHtml } = await import('../src/index.js');
+  const reply = 'To move the button under the text, add flex-direction. Here is the updated code:\n\n<!DOCTYPE html>\n<html>\n<head>\n<style>\nbody { display: flex; flex-direction: column; align-items: center; }\n</style>\n</head>\n<body>\n<h1>Button Example</h1>\n<button class="button">Click Me</button>\n```html\n<script>\ndocument.querySelector(\'.button\').addEventListener(\'click\', () => alert(\'Button clicked!\'));\n</script>\n```\n</body>\n</html>\n\nExplanation: the `flex-direction` property stacks them.';
+  const files = extractCodeFiles(reply, { wantsCode: true });
+  assert.equal(files.length, 1);
+  assert.equal(files[0].path, 'index.html');
+  assert.match(files[0].content, /^<!DOCTYPE html>[\s\S]*flex-direction: column[\s\S]*<script>[\s\S]*<\/html>\n$/);
+  assert.doesNotMatch(files[0].content, /```/);
+  const shown = fenceRawHtml(reply);
+  assert.match(shown, /Here is the updated code:\n\n```html\n<!DOCTYPE html>/);
+  assert.match(shown, /<\/html>\n```\n\n\nExplanation/);
+  // normal fenced pages are left alone
+  const fenced = 'Here:\n```html\n<!DOCTYPE html>\n<html><body>hi</body></html>\n```';
+  assert.equal(fenceRawHtml(fenced), fenced);
+  // a mention of <html> in prose without a page is left alone
+  assert.equal(fenceRawHtml('Use the <html> tag at the top.'), 'Use the <html> tag at the top.');
+});

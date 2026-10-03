@@ -1,6 +1,7 @@
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
+import { fenceRawHtml } from '@buddo/core';
 
 const marked = new Marked({ gfm: true, breaks: false });
 
@@ -33,6 +34,10 @@ marked.use({
       const l = (lang || '').split(/\s/)[0];
       return `<div class="codeblock"><div class="codeblock-head"><span>${esc(l || 'code')}</span><button class="copy-btn" data-copy>Copy</button></div><pre><code class="hljs">${highlight(text, l)}</code></pre></div>`;
     },
+    // Models sometimes write HTML tags in prose; show them as text instead of rendering live elements.
+    html({ text }) {
+      return esc(text);
+    },
     link({ href, title, tokens }) {
       const text = this.parser.parseInline(tokens);
       return `<a href="${esc(href || '')}" target="_blank" rel="noopener noreferrer"${title ? ` title="${esc(title)}"` : ''}>${text}</a>`;
@@ -44,7 +49,8 @@ const cache = new Map();
 export function renderMarkdown(src) {
   if (cache.has(src)) return cache.get(src);
   // Close an unterminated fence while streaming so the code block renders nicely.
-  let s = src;
+  // A bare pasted HTML page becomes one code block (the same thing Buddo saves as a file).
+  let s = fenceRawHtml(src);
   if ((s.match(/^```/gm) || []).length % 2 === 1) s += '\n```';
   const html = DOMPurify.sanitize(marked.parse(s), { ADD_ATTR: ['target', 'data-copy'] });
   if (cache.size > 300) cache.clear();

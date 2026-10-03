@@ -1,4 +1,4 @@
-import { sniffLang } from './edits.js';
+import { sniffLang, isFullHtml, linkedFiles } from './edits.js';
 
 // Small models often answer with plain markdown code blocks instead of tool calls.
 // This turns those blocks into files: it finds (or infers) a filename for each block.
@@ -54,9 +54,10 @@ export function fenceRawHtml(text = '', { partial = false } = {}) {
 
 /**
  * Find code blocks that should become files.
+ * diffs: also keep ```diff blocks (for removals, where "- " lines say what to delete).
  * Returns [{ path, content, lang, inferred, truncated }].
  */
-export function extractCodeFiles(text, { wantsCode = false } = {}) {
+export function extractCodeFiles(text, { wantsCode = false, diffs = false } = {}) {
   text = fenceRawHtml(text);
   const out = [];
   const lines = text.split('\n');
@@ -88,7 +89,8 @@ export function extractCodeFiles(text, { wantsCode = false } = {}) {
       }
     }
     let code = body.join('\n');
-    const langWord = open[2].replace(/[:{].*$/, '').toLowerCase();
+    let langWord = open[2].replace(/[:{].*$/, '').toLowerCase();
+    if (diffs && /^(diff|patch)$/.test(langWord)) langWord = sniffLang(code.replace(/^[-+ ]/gm, '').replace(/^(---|\+\+\+|@@).*$/gm, ''));
     let path = null;
     // ```html:index.html   ```index.html   ```js title="app.js"   ```python main.py
     path = /^[\w+#-]*:((?:[\w-]+\/)*[\w.-]+\.\w+)/.exec(open[2])?.[1] || (FILE_RE.test(` ${open[2]} `) && /\.\w+$/.test(open[2]) ? open[2] : null) || FILE_RE.exec(` ${open[3]} `)?.[1] || null;
@@ -154,6 +156,33 @@ export function extractCodeFiles(text, { wantsCode = false } = {}) {
     if (best) keep = [best];
   }
   return keep.map(({ info, ...f }) => ({ ...f, path: f.path.replace(/^\.?\//, '') }));
+}
+
+/**
+ * A new page and its own stylesheet/script in one reply, but the page doesn't load them (tiny models forget
+ * the <link>): link them, or the button the CSS colors green shows up plain.
+ */
+export function linkAssets(files = []) {
+  const pages = files.filter((f) => f.lang === 'html' && isFullHtml(f.content));
+  if (pages.length !== 1) return files;
+  const [page] = pages;
+  const dir = page.path.includes('/') ? page.path.slice(0, page.path.lastIndexOf('/') + 1) : '';
+  const loaded = new Set(linkedFiles(page.content));
+  let html = page.content;
+  const add = (tag, close) => {
+    const at = html.search(new RegExp(`[ \\t]*<\\/${close}>`, 'i'));
+    if (at === -1) return (html = /<\/html>/i.test(html) ? html.replace(/<\/html>/i, `${tag}\n</html>`) : `${html.replace(/\s*$/, '')}\n${tag}\n`);
+    const indent = /^[ \t]*/.exec(html.slice(at))[0];
+    html = `${html.slice(0, at)}${indent}  ${tag}\n${html.slice(at)}`;
+  };
+  for (const f of files) {
+    if (f === page || !f.path.startsWith(dir)) continue;
+    const rel = f.path.slice(dir.length);
+    if (loaded.has(rel) || html.includes(rel)) continue;
+    if (f.lang === 'css') add(`<link rel="stylesheet" href="${rel}">`, 'head');
+    else if (f.lang === 'js' && !/^\s*(import|export)\s|\brequire\(|module\.exports/m.test(f.content)) add(`<script src="${rel}"></script>`, 'body');
+  }
+  return html === page.content ? files : files.map((f) => (f === page ? { ...f, content: html } : f));
 }
 
 const BUILD_VERBS = /\b(build|make|create|write|code|generate|add|fix|change|update|edit|improve|redo|rewrite|style|design|implement|program|develop|put|turn|convert|refactor|clone|copy|recreate|move|remove|delete|replace|give|want|need)\b/i;

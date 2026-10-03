@@ -105,6 +105,20 @@ const REMOVAL = /\b(remove|delete|get rid|clean ?up|strip|drop|simplify|shorten|
 /** Does this message ask to take things out (so a much shorter file is expected)? */
 export const asksToRemove = (text = '') => REMOVAL.test(text);
 
+const REMOVE_ONLY = /\b(remove|delete|get rid of|take (?:out|away)|strip|erase|cut out|drop)\b|\b(?:keep|leave) (?:only|just)\b|\bonly (?:keep|leave)\b/gi;
+const OTHER_CHANGE =
+  /\b(add|change|move|fix|update|edit|rename|replace|turn|increase|decrease|bigger|smaller|larger|wider|taller|cent(?:er|re)|align|darker|lighter|swap|improve|modify|put|resize|insert|create|build|write|rewrite|redo|instead|make|style)\b/i;
+const KEEP_ONLY = /\b(except|other than|apart from|besides|nothing but|but (?:the|for|keep|leave)|(?:keep|leave) (?:only|just)|only (?:keep|leave))\b/i;
+/**
+ * A request that only takes things out ("remove the title", "delete everything except the button"):
+ * 'keep' when it names what stays, 'remove' when it names what goes, null when it asks for more than removing.
+ */
+export function removalKind(text = '') {
+  if (!new RegExp(REMOVE_ONLY.source, 'i').test(text) || OTHER_CHANGE.test(text.replace(REMOVE_ONLY, ' '))) return null;
+  if (/^\s*(how|what|why|where|when|which|explain|should i|do i|does)\b/i.test(text)) return null; // a question, not a request
+  return KEEP_ONLY.test(text) ? 'keep' : 'remove';
+}
+
 // Placeholders a model writes instead of the code it left out: "...", "// rest of the code", "<!-- existing styles -->".
 const PLACEHOLDER = /^\s*(?:\.{3}|…|(?:\/\/|\/\*|#|<!--)\s*(?:(?:\.{3}|…)[^\n]*|(?:the )?(?:rest|remaining|existing|previous|same|other|unchanged|more)\b[^\n]*|keep (?:the )?(?:rest|existing|same|everything|other)\b[^\n]*|your (?:code|content|existing|other)\b[^\n]*)(?:\*\/|-->)?\s*)$/im;
 /** Did the model leave parts of the file out ("// ... rest of the code")? */
@@ -188,10 +202,14 @@ export function rewriteAsEdits(before = '', after = '', { maxHunks = 12 } = {}) 
  * files: from extractCodeFiles. target: { path, content } of the page being worked on (or null).
  * related: other project files the page uses ({ path, content }), where a snippet might belong instead.
  * edit: the user asked to change existing code, so existing files only get the lines that change.
- * Returns { writes: [{ path, content, before?, merged?, edit?, edits? }], needFull: boolean }.
+ * removal: the user only asked to take things out ('remove' | 'keep', see removalKind): only deletions are saved.
+ * Returns { writes: [{ path, content, before?, merged?, edit?, edits? }], needFull: boolean, unchanged: [paths
+ * the model sent back without changing anything] }.
  */
-export async function planCodeSave(files, { target, related = [], edit = false, removing = false, read = async () => null } = {}) {
+export async function planCodeSave(files, { target, related = [], edit = false, removing = false, removal = null, read = async () => null } = {}) {
+  if (edit && removal) return planRemoval(files, { target, related, kind: removal, read });
   const writes = [];
+  const unchanged = [];
   let needFull = false;
   const known = new Map([target, ...related].filter(Boolean).map((f) => [f.path, f.content]));
   const readKnown = async (p) => (known.has(p) ? known.get(p) : read(p).catch(() => null));
@@ -246,7 +264,7 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
     }
     writes.push({ ...f, before: edit ? existing : null });
   }
-  if (!edit) return { writes, needFull };
+  if (!edit) return { writes, needFull, unchanged };
   // Changing existing code: skip files that didn't change, and turn rewrites into the line edits they make.
   const out = [];
   for (const w of writes) {
@@ -254,7 +272,10 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
       out.push(w);
       continue;
     }
-    if (w.before.trim() === w.content.trim()) continue;
+    if (w.before.trim() === w.content.trim()) {
+      unchanged.push(w.path);
+      continue;
+    }
     // A rewrite that quietly drops most of the file is a model that forgot the rest: don't save it.
     const shrunk = w.content.split('\n').length < w.before.split('\n').length * 0.55;
     if (!w.merged && ((shrunk && !removing) || hasPlaceholders(w.content))) {
@@ -264,7 +285,7 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
     const edits = rewriteAsEdits(w.before, w.content);
     out.push(edits?.length ? { ...w, edits } : w);
   }
-  return { writes: out, needFull };
+  return { writes: out, needFull, unchanged };
 }
 
 // ── Find/replace edits ──
@@ -393,4 +414,164 @@ export function mergeChangedLines(content = '', snippet = '') {
   if (out.join('\n') === before.join('\n')) return null; // the model changed nothing
   const merged = [...file.slice(0, from), ...out, ...file.slice(to + 1)].join('\n') + (content.endsWith('\n') ? '\n' : '');
   return { content: merged, old: before.join('\n'), new: out.join('\n') };
+}
+
+// ── Removals ──
+// "Remove the title" / "remove everything except the button" should only take lines out. Whatever the model
+// sends (the lines to delete, or the whole file without them), Buddo deletes just the lines that go and keeps
+// every other line exactly as it was, so the model can't quietly restyle or rewrite the rest.
+
+const selectorOf = (s) => /^([^{};]+)\{/.exec(s)?.[1].trim() || '';
+const declOf = (s) => /^(?:(?:export|async)\s+)*(?:const|let|var|function\*?|class)\s+([\w$]+)/.exec(s)?.[1] || '';
+/** Same element / CSS rule / declaration, written differently? */
+const sameKind = (a, b) => (!!tagOf(a) && tagOf(a) === tagOf(b)) || (!!selectorOf(a) && selectorOf(a) === selectorOf(b)) || (!!declOf(a) && declOf(a) === declOf(b));
+
+/** Is `shorter` just `line` with one stretch cut out (an attribute, a declaration)? */
+function isCutOf(line, shorter) {
+  if (!shorter || shorter.length >= line.length) return false;
+  let p = 0;
+  while (p < shorter.length && line[p] === shorter[p]) p++;
+  let s = 0;
+  while (s < shorter.length - p && line[line.length - 1 - s] === shorter[shorter.length - 1 - s]) s++;
+  return p + s === shorter.length;
+}
+
+/**
+ * The model's version of a file → the original file with only the lines (or stretches of a line) that the
+ * model left out removed. Lines it changed or added are ignored: the original lines stay as they were.
+ * Returns the new file, or null when nothing was removed.
+ */
+export function keepOnlyRemovals(before = '', after = '') {
+  const A = before.replace(/\n$/, '').split('\n');
+  const keys = A.map(normLine);
+  const B = after.replace(/\n$/, '').split('\n');
+  const rows = diffLines(keys.join('\n'), B.map(normLine).join('\n'));
+  const drop = new Set();
+  const trimmed = new Map();
+  let gone = [];
+  let added = [];
+  const settle = () => {
+    const cheap = gone.length * added.length > 5000;
+    for (const i of gone) {
+      if (!keys[i]) {
+        drop.add(i);
+        continue;
+      }
+      let best = -1;
+      let score = 0;
+      added.forEach((j, n) => {
+        const b = normLine(B[j]);
+        const s = cheap ? (sameKind(keys[i], b) ? 0.6 : 0) : similarity(keys[i], b) + (sameKind(keys[i], b) ? 0.3 : 0);
+        if (s > score) [score, best] = [s, n];
+      });
+      if (best < 0 || score < 0.6) {
+        drop.add(i);
+        continue;
+      }
+      // A line the model only rewrote stays as it was; one it only cut a stretch out of (an attribute) is cut.
+      const theirs = B[added[best]].trim();
+      if (isCutOf(A[i].trim(), theirs)) trimmed.set(i, /^\s*/.exec(A[i])[0] + theirs);
+      added.splice(best, 1);
+    }
+    gone = [];
+    added = [];
+  };
+  for (const r of rows) {
+    if (r.type === ' ') settle();
+    else if (r.type === '-') gone.push(r.a - 1);
+    else added.push(r.b - 1);
+  }
+  settle();
+  // Dropping only blank lines isn't removing anything.
+  if (![...drop].some((i) => keys[i]) && !trimmed.size) return null;
+  const out = A.flatMap((l, i) => (drop.has(i) ? [] : [trimmed.get(i) ?? l]));
+  return out.join('\n') + (before.endsWith('\n') ? '\n' : '');
+}
+
+// A line marked for deletion: "- <h1>Title</h1>" or, diff style, "-<h1>Title</h1>".
+const MINUS = /^\s*-(?:\s+|(?=[<.#@}{]))(?=\S)/;
+const DIFF_HEAD = /^\s*(?:@@.*@@.*|---(?:\s.*)?|\+\+\+(?:\s.*)?|diff --git.*|index [0-9a-f]+\.\.[0-9a-f]+.*)$/;
+/** Is this snippet a list of lines to delete ("- " in front of each)? */
+export const isMinusList = (snippet = '') => {
+  const lines = snippet.split('\n').filter((l) => l.trim() && !DIFF_HEAD.test(l));
+  return lines.some((l) => MINUS.test(l)) && lines.every((l) => MINUS.test(l) || /^\s*\+/.test(l) || !/^\s*-/.test(l));
+};
+
+/**
+ * Delete the lines a snippet lists. In a "- " list, the minus lines go and other lines are unchanged context
+ * (they only say where); without minus signs every line goes. The lines must be in the file, in order, as one
+ * clear spot each. Returns the new file, or null when a line can't be found (or is ambiguous).
+ */
+export function deleteListedLines(content = '', snippet = '') {
+  const file = content.replace(/\n$/, '').split('\n');
+  const keys = file.map(normLine);
+  const marked = isMinusList(snippet);
+  const want = snippet
+    .split('\n')
+    .filter((l) => l.trim() && !DIFF_HEAD.test(l) && !(marked && /^\s*\+/.test(l)))
+    .map((l) => (marked && MINUS.test(l) ? { del: true, key: normLine(l.replace(MINUS, '')) } : { del: !marked, key: normLine(l) }));
+  if (!want.some((w) => w.del)) return null;
+  // Each line's spot: the next match after the previous line, which must also be the only match there
+  // (or the line right after the previous one, which pins it down).
+  const drop = new Set();
+  let last = -1;
+  for (const w of want) {
+    const at = [];
+    for (let i = last + 1; i < keys.length; i++) if (keys[i] === w.key && !drop.has(i)) at.push(i);
+    if (!at.length) return null;
+    const i = at.length === 1 || (last >= 0 && at[0] === last + 1) ? at[0] : -1;
+    if (i < 0) return null;
+    if (w.del) drop.add(i);
+    last = i;
+  }
+  return file.filter((_, i) => !drop.has(i)).join('\n') + (content.endsWith('\n') ? '\n' : '');
+}
+
+/**
+ * For a removal request: what the model's reply takes out of each file. kind: 'remove' (it named what goes)
+ * or 'keep' (it named what stays). Returns { writes, needFull, unchanged }: needFull when it can't tell what to
+ * delete, unchanged lists files the model sent back with nothing removed.
+ */
+export async function planRemoval(files, { target, related = [], kind = 'remove', read = async () => null } = {}) {
+  const writes = [];
+  const unchanged = [];
+  let needFull = false;
+  const all = [target, ...related].filter(Boolean);
+  const known = new Map(all.map((f) => [f.path, f.content]));
+  const readKnown = async (p) => (known.has(p) ? known.get(p) : read(p).catch(() => null));
+  for (const f of files) {
+    const page = f.lang === 'html' && isFullHtml(f.content);
+    let bases;
+    const existing = await readKnown(f.path);
+    if (existing !== null && !(f.inferred && page && target && f.path !== target.path)) bases = [{ path: f.path, content: existing }];
+    else if (page && target) bases = [target];
+    else if (f.inferred) {
+      const ext = { css: /\.(css|s[ac]ss|less)$/i, js: /\.m?jsx?$/i, html: /\.html?$/i }[f.lang];
+      bases = ext ? [...all.filter((b) => ext.test(b.path)), ...all.filter((b) => !ext.test(b.path))] : all;
+    } else continue; // a new file isn't a removal
+    let hit = null;
+    let same = false;
+    for (const base of bases) {
+      const lines = base.content.split('\n').length;
+      const snip = f.content.split('\n').filter((l) => l.trim());
+      const first = normLine(base.content.split('\n').find((l) => l.trim()) || '');
+      const whole = page || (snip.length > 2 && normLine(snip[0]) === first) || snip.length >= lines * 0.6;
+      let out = null;
+      if (isMinusList(f.content)) out = deleteListedLines(base.content, f.content);
+      else if (whole && !hasPlaceholders(f.content)) {
+        out = keepOnlyRemovals(base.content, f.content);
+        if (out === null) same = true;
+      } else if (kind === 'remove') out = deleteListedLines(base.content, f.content);
+      if (out !== null && out !== base.content) {
+        hit = { path: base.path, before: base.content, content: out, merged: true };
+        break;
+      }
+    }
+    if (hit) {
+      const edits = rewriteAsEdits(hit.before, hit.content);
+      writes.push(edits?.length ? { ...hit, edits } : hit);
+    } else if (same) unchanged.push(bases[0].path);
+    else needFull = true;
+  }
+  return { writes, needFull: needFull && !writes.length, unchanged };
 }

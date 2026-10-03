@@ -68,7 +68,7 @@ test('planCodeSave: full page replaces the edited page; fragments merge or ask f
   assert.match(css.writes[0].content, /background-color: blue/);
   assert.ok(css.writes[0].merged);
   const js = await planCodeSave([{ path: 'script.js', inferred: true, lang: 'js', content: "alert('x')" }], { target, edit: true, read });
-  assert.deepEqual(js, { writes: [], needFull: true });
+  assert.deepEqual(js, { writes: [], needFull: true, unchanged: [] });
   const fresh = await planCodeSave([{ path: 'script.js', inferred: true, lang: 'js', content: "alert('x')" }], { target: null, read });
   assert.equal(fresh.writes.length, 1, 'no page yet: save as a new file');
 });

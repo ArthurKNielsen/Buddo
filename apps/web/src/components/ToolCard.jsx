@@ -227,7 +227,7 @@ export default function ToolCard({ part }) {
         <span className="tool-desc truncate mono">{describeCall(call)}</span>
         {call.auto && (
           <span className="tool-tag" title={call.merged ? 'The model sent only the changed CSS; Buddo merged it into the file' : 'The model wrote a code block; Buddo saved it as a file'}>
-            {call.merged ? 'change merged in' : 'from code block'}
+            {call.quick ? 'done by Buddo' : call.merged ? 'change merged in' : 'from code block'}
           </span>
         )}
         <span className="spacer" />

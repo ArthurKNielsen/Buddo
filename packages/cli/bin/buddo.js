@@ -713,7 +713,7 @@ function renderer() {
             live = null;
           }
           const name = toolNames[e.call.name] || e.call.name;
-          console.log(`\n${C.green('⏺')} ${C.bold(name)}${C.dim('(')}${describeCall(e.call)}${C.dim(')')}${e.call.auto ? C.dim(' · from code block') : ''}`);
+          console.log(`\n${C.green('⏺')} ${C.bold(name)}${C.dim('(')}${describeCall(e.call)}${C.dim(')')}${e.call.quick ? C.dim(' · done by Buddo') : e.call.auto ? C.dim(' · from code block') : ''}`);
           break;
         }
         case 'nudge':

@@ -82,7 +82,7 @@ async function chat(turns, { files = {}, lite = true } = {}) {
   const provider = { async *stream({ messages }) { seen.push(messages); yield { type: 'text', text: turns[Math.min(i++, turns.length - 1)] }; } };
   const events = [];
   const messages = [{ role: 'user', content: turns.prompt }];
-  const res = await runAgent({ provider, model: 'llama-3.2-1b', workspace: ws, messages, mode: 'auto', lite, onEvent: (e) => events.push(e) });
+  const res = await runAgent({ provider, model: 'llama-3.2-1b', workspace: ws, messages, mode: 'auto', lite, onEvent: (e) => events.push(e), quickEdits: false }); // these test what Buddo does with a model's reply
   return { res, events, seen, dir, read: (f) => fs.readFile(path.join(dir, f), 'utf8') };
 }
 

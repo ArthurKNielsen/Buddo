@@ -1,6 +1,6 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision, recheckGpu, usesCpu } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision, recheckGpu, usesCpu, recordSpeed } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -223,6 +223,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           break;
         case 'usage':
           draft.usage = { prompt: e.prompt, completion: e.completion, tps: e.tps };
+          recordSpeed(model, e.tps, settings);
           if (step) Object.assign(step, { endedAt: Date.now(), usage: { prompt: e.prompt, completion: e.completion, tps: e.tps } });
           break;
         case 'error':

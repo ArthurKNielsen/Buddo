@@ -2,7 +2,7 @@
 
 import { ollamaProvider, openaiCompatProvider, thinksNatively, looksGarbled } from '@buddo/core';
 import { useStore } from './store.js';
-import { loadCpu, cpuStream } from './cpu-engine.js';
+import { loadCpu, cpuStream, cpuSupports } from './cpu-engine.js';
 import {
   detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess,
 } from './workspaces.js';
@@ -30,16 +30,58 @@ export async function refreshFileIndex() {
 // ───────── WebLLM (in-browser, WebGPU) ─────────
 export const WEBLLM_MODELS = [
   // Pocket models: tiny, fast enough for phones (iPhone Safari 26+ has WebGPU).
-  { id: 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC', label: 'Pocket Coder 0.5B', size: '≈300 MB', note: 'Fastest — made for phones ⚡', pocket: true },
-  { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', label: 'Pocket Mini 360M', size: '≈200 MB', note: 'Ultralight chat, older phones', pocket: true },
-  { id: 'Qwen3-0.6B-q4f16_1-MLC', label: 'Pocket Thinker 0.6B', size: '≈350 MB', note: 'Tiny model that reasons', pocket: true },
-  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Pocket Plus 1B', size: '≈700 MB', note: 'Best quality under 1 GB', pocket: true },
-  { id: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 7B', size: '≈5.1 GB', note: 'Smartest — needs a good GPU' },
-  { id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 3B', size: '≈2.5 GB', note: 'Balanced — recommended' },
-  { id: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 1.5B', size: '≈1.6 GB', note: 'Fast, for most laptops' },
-  { id: 'Qwen3-4B-q4f16_1-MLC', label: 'Qwen 3 4B', size: '≈3.4 GB', note: 'Reasoning model' },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', size: '≈2.3 GB', note: 'General purpose' },
+  { id: 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC', label: 'Pocket Coder 0.5B', size: '≈300 MB', note: 'Fastest — made for phones ⚡', uses: ['code'], best: 'Quick code edits and small pages on Chromebooks and phones', pocket: true },
+  { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', label: 'Pocket Mini 360M', size: '≈200 MB', note: 'Ultralight chat, older phones', uses: ['chat'], best: 'Simple chat on very old devices (weak at code)', pocket: true },
+  { id: 'Qwen3-0.6B-q4f16_1-MLC', label: 'Pocket Thinker 0.6B', size: '≈350 MB', note: 'Tiny model that reasons', uses: ['think', 'search'], best: 'Questions that need step-by-step thinking (thinks first, so replies take longer)', pocket: true },
+  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Pocket Plus 1B', size: '≈700 MB', note: 'Best quality under 1 GB', uses: ['chat', 'search'], best: 'Questions, writing and web search (OK at code)', pocket: true },
+  { id: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 7B', size: '≈5.1 GB', note: 'Smartest — needs a good GPU', uses: ['code'], best: 'Best code in the browser — needs a strong GPU' },
+  { id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 3B', size: '≈2.5 GB', note: 'Balanced — recommended', uses: ['code'], best: 'Good code on a decent GPU' },
+  { id: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen 2.5 Coder 1.5B', size: '≈1.6 GB', note: 'Fast, for most laptops', uses: ['code'], best: 'Solid code on most laptops' },
+  { id: 'Qwen3-4B-q4f16_1-MLC', label: 'Qwen 3 4B', size: '≈3.4 GB', note: 'Reasoning model', uses: ['think', 'search', 'chat'], best: 'Tricky questions, reasoning and web search' },
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', size: '≈2.3 GB', note: 'General purpose', uses: ['chat', 'search'], best: 'Chat, writing and web search' },
 ];
+
+/** Which model to pick for what, per device. Shown at the top of the model picker. */
+export function modelGuide(settings = useStore.getState().settings) {
+  if (settings.engine === 'webllm' && usesCpu(settings)) {
+    return [
+      { use: 'code', text: 'Coding', id: 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC' },
+      { use: 'search', text: 'Questions & web search', id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC' },
+      { use: 'think', text: 'Step-by-step thinking (slower)', id: 'Qwen3-0.6B-q4f16_1-MLC' },
+    ];
+  }
+  if (settings.engine === 'webllm') {
+    return [
+      { use: 'code', text: 'Coding (7B if your GPU is strong)', id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC' },
+      { use: 'search', text: 'Questions & web search', id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC' },
+      { use: 'think', text: 'Tricky questions', id: 'Qwen3-4B-q4f16_1-MLC' },
+    ];
+  }
+  return [
+    { use: 'code', text: 'Coding', id: 'qwen2.5-coder:7b' },
+    { use: 'search', text: 'Questions, thinking & web search', id: 'qwen3:8b' },
+    { use: 'vision', text: 'Looking at images', id: 'gemma3:4b' },
+  ];
+}
+
+/** 1–4: how fast a model runs here, from its download size (smaller = faster). 0 = can't run here (needs a GPU). */
+export function speedRating(m, settings = useStore.getState().settings) {
+  if (settings.engine === 'webllm' && usesCpu(settings) && !cpuSupports(m.id)) return 0;
+  const mb = typeof m.size === 'number' ? m.size / 1e6 : parseFloat(String(m.size).replace(/[^\d.]/g, '')) * (/GB/i.test(m.size) ? 1000 : 1);
+  if (!mb) return null;
+  return mb < 450 ? 4 : mb < 1000 ? 3 : mb < 2700 ? 2 : 1;
+}
+
+// Real speeds measured on this device (tokens/sec while writing), per engine + model.
+export const speedKey = (model, settings = useStore.getState().settings) =>
+  settings.engine === 'webllm' ? `${usesCpu(settings) ? 'cpu' : 'gpu'}:${shortModel(model)}` : `${settings.engine}:${model}`;
+export function recordSpeed(model, tps, settings = useStore.getState().settings) {
+  if (!(tps > 0) || !isFinite(tps)) return;
+  const key = speedKey(model, settings);
+  const speeds = settings.modelSpeeds || {};
+  const prev = speeds[key];
+  useStore.getState().setSettings({ modelSpeeds: { ...speeds, [key]: prev ? prev * 0.6 + tps * 0.4 : tps } });
+}
 
 /** Tiny models (any engine) get the short "lite" prompt and a small context so they stay fast. */
 export const isPocketModel = (id = '') => WEBLLM_MODELS.some((m) => m.pocket && m.id === id) || /(^|[:\-_])(0\.5b|360m|135m|0\.6b|1b|1\.1b)\b/i.test(id);

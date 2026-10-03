@@ -726,3 +726,18 @@ textarea.input { height: auto; min-height: 70px; padding: 10px 12px; resize: ver
 .live-del .cv-line { background: var(--del-bg); }
 .live-del .diff-sign { color: var(--danger); }
 .live-code .cv-line:last-child { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+/* Model picker: what each model is good at, how fast it runs here */
+.use-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.use-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 650; color: var(--text-2); background: var(--bg-3, var(--bg-2)); border: 1px solid var(--border); white-space: nowrap; }
+.use-chip.use-code { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.speed-line { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--text-3); }
+.speed-off { opacity: 0.25; }
+.speed-measured { color: var(--accent); font-weight: 600; }
+.speed-line.needs-gpu { color: var(--danger); }
+.model-guide { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-2); }
+.model-guide-title { font-size: 12.5px; font-weight: 700; margin-bottom: 2px; }
+.model-guide-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 12.5px; text-align: left; }
+.model-guide-row:not(:disabled):hover { background: var(--accent-soft); }
+.model-guide-row .mono { font-size: 12px; font-weight: 600; }
+.model-guide-note { font-size: 11.5px; margin-top: 2px; }

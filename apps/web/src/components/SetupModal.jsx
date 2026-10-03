@@ -7,6 +7,7 @@ import { checkEngine, WEBLLM_MODELS, loadWebLLM, hasWebGPU, pickBrowserFolder, u
 import { supportsFolderAccess } from '../lib/workspaces.js';
 import { PullButton } from './ModelPicker.jsx';
 import Logo from './Logo.jsx';
+import { ModelGuide, UseChips, SpeedLine } from './ModelInfo.jsx';
 
 const slide = {
   initial: (d) => ({ opacity: 0, x: d * 40 }),
@@ -146,6 +147,7 @@ function WebLLMSetup() {
       <p className="muted" style={{ marginTop: 0 }}>
         The model downloads once into your browser cache and runs on your {gpu ? 'GPU' : 'CPU'}. Nothing is sent anywhere.
       </p>
+      <ModelGuide onPick={(id) => setSettings({ webllmModel: id })} />
       <div className="model-list">
         {WEBLLM_MODELS.map((m) => (
           <button key={m.id} className={'model-row' + (settings.webllmModel === m.id ? ' on' : '')} onClick={() => setSettings({ webllmModel: m.id })}>
@@ -154,9 +156,11 @@ function WebLLMSetup() {
                 <span className="mono">{m.label}</span>
                 {m.pocket && <span className="pocket-badge">⚡ Pocket</span>}
               </div>
+              <UseChips uses={m.uses} />
               <div className="faint">
-                {m.size} · {m.note}
+                {m.best} · {m.size}
               </div>
+              <SpeedLine m={m} />
             </div>
             <span className="spacer" />
             {settings.webllmModel === m.id && <Check size={16} className="ok" />}

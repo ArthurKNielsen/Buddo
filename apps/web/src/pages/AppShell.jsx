@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStore } from '../lib/store.js';
-import { initWorkspace, checkEngine, checkVision } from '../lib/engine.js';
+import { initWorkspace, checkEngine, checkVision, shortModel } from '../lib/engine.js';
 import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import ChatView from '../components/ChatView.jsx';
@@ -46,6 +46,14 @@ export default function AppShell() {
 
   useEffect(() => {
     document.title = 'Buddo';
+    // The page reloaded while an in-browser model was answering: almost always the phone running out of memory.
+    try {
+      const crashed = JSON.parse(localStorage.getItem('buddo-answering') || 'null');
+      localStorage.removeItem('buddo-answering');
+      if (crashed && Date.now() - crashed.at < 15 * 60 * 1000) {
+        setTimeout(() => useStore.getState().toast(`Buddo restarted while ${shortModel(crashed.model)} was answering. This device probably ran out of memory: close other apps, or pick a smaller model (like Pocket Plus 1B).`, 'error'), 1200);
+      }
+    } catch {}
     if (window.innerWidth < 860) useStore.getState().setUI({ sidebar: false });
     (async () => {
       await initWorkspace();

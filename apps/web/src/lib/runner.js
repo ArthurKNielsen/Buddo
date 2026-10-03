@@ -141,6 +141,13 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     context = await gatherContext(ws);
   } catch {}
 
+  // If the phone runs out of memory mid-answer, the tab reloads; this note lets Buddo say why afterwards.
+  const onDevice = settings.engine === 'webllm';
+  if (onDevice) {
+    try {
+      localStorage.setItem('buddo-answering', JSON.stringify({ model, at: Date.now() }));
+    } catch {}
+  }
   const result = await runAgent({
     provider: getProvider(settings),
     model,
@@ -278,6 +285,11 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     },
   });
 
+  if (onDevice) {
+    try {
+      localStorage.removeItem('buddo-answering');
+    } catch {}
+  }
   if (draft.status === 'streaming') draft.status = result.status === 'done' ? 'done' : result.status;
   draft.endedAt = Date.now();
   // Record the build that actually ran (e.g. the q4f32 version of an in-browser model).

@@ -118,8 +118,9 @@ export function thinkAloud(settings = useStore.getState().settings) {
 export function liteMode(settings = useStore.getState().settings) {
   if (settings.lite === 'on') return true;
   if (settings.lite === 'off') return false;
-  // CPU mode reads prompts slowly, so it always gets the short prompt.
-  return isPocketModel(currentModel(settings)) || (settings.engine === 'webllm' && usesCpu(settings));
+  // CPU mode reads prompts slowly, so it always gets the short prompt. On phones, every in-browser model gets
+  // it too: reading the long prompt in one go needs more memory than iOS gives a Safari tab.
+  return isPocketModel(currentModel(settings)) || (settings.engine === 'webllm' && (usesCpu(settings) || isMobile()));
 }
 
 let webllmEngine = null;
@@ -247,7 +248,10 @@ async function loadOnGpu(model) {
   status('Loading WebLLM runtime…');
   webllmLib ||= await import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2');
   const onProgress = (p) => status(p.text, p.progress);
-  const ctx = { context_window_size: isPocketModel(model) ? 4096 : 8192 };
+  // Phones: a smaller context and reading the prompt in small chunks, so memory doesn't spike when a message
+  // is sent (iOS kills the tab when it does; seen with Qwen 2.5 Coder 1.5B on an iPhone 16).
+  const phone = isMobile();
+  const ctx = { context_window_size: isPocketModel(model) || phone ? 4096 : 8192, ...(phone ? { prefill_chunk_size: 512 } : {}) };
   webllmReady = '';
   const release = await acquireEngine();
   try {

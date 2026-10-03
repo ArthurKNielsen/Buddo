@@ -6,10 +6,13 @@ import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
-import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
-import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits } from './edits.js';
+import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml, linkAssets } from './codeblocks.js';
+import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders } from './edits.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
+
+// "I removed the title", "The button has been updated", "Done!": the reply says the change is made.
+const CLAIMS_DONE = /\b(?:i(?:'ve|’ve| have)?|has been|have been|is now|are now)\s+(?:now\s+)?(?:removed|deleted|changed|updated|made|added|replaced|edited|fixed|modified|cleaned|moved|renamed|turned|styled)\b|^\s*(?:all )?done\b/im;
 
 // Vision models spend roughly this many tokens per attached image.
 const IMAGE_TOKENS = 1000;
@@ -124,8 +127,10 @@ export async function runAgent({
   let freshNext = false;
   const lastUserMsg = () => [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'));
   const lastUserText = () => lastUserMsg()?.content || '';
-  // What the user typed, without the file Buddo attached for small models.
-  const askedText = () => lastUserText().split('\n\n[Current ')[0];
+  // What the user typed, without the file Buddo attached for small models. Read once, before Buddo adds its
+  // own nudges ("I couldn't tell which lines to delete…"), so those are never mistaken for the request.
+  const asked = lastUserText().split('\n\n[Current ')[0];
+  const askedText = () => asked;
 
   /** The page this conversation is working on: the last HTML file written here, else the project's index.html. */
   const findTarget = async () => {
@@ -171,6 +176,13 @@ export async function runAgent({
   // (mergeChangedLines). If it can't tell, it asks for the whole file.
   const askEdit = (paths) =>
     `Change only what was asked. Reply with ONLY the lines you change, written the new way: the file name on its own line, then a code block with just those lines. Don't rewrite whole files${paths.length > 1 ? ` (the project has ${paths.join(', ')})` : ''}. To add something new, also include the line just above where it goes.`;
+  // Removals: "remove X" → just the lines that go; "remove everything except X" → the file with only what
+  // stays (the shorter answer each time). Either way Buddo only deletes lines and keeps the rest as it is.
+  const askRemove = (kind, paths) =>
+    kind === 'keep'
+      ? `Remove everything else and keep what was asked exactly as it is. Reply with the file name on its own line, then that whole file as it should end up in one code block: only the lines that stay, copied exactly. Don't change or add anything${paths.length > 1 ? ` (the project has ${paths.join(', ')})` : ''}.`
+      : `Remove only what was asked and keep everything else as it is. Reply with the file name on its own line, then a code block with ONLY the lines to delete, copied exactly from the file, each starting with "- ". Don't rewrite the file${paths.length > 1 ? ` (the project has ${paths.join(', ')})` : ''}.`;
+  const askChange = (paths) => (removal() ? askRemove(removal(), paths) : askEdit(paths));
   const showFiles = (fs) => fs.map((f) => `[Current ${f.path}]\n${fence(f.path, f.content)}`).join('\n');
   /** The files for an edit, small enough to show a small model (the page first). */
   const editFilesToShow = async (budget = 9000) => {
@@ -187,14 +199,16 @@ export async function runAgent({
   const createdHere = new Set();
   const rewriteWarned = new Set();
   const editRequest = () => !isNewBuild(askedText()) && !asksToRemove(askedText()) && looksLikeEdit(askedText());
+  // The user only asked to take things out: 'remove' (named what goes) or 'keep' (named what stays).
+  const removal = () => (mode === 'plan' ? null : removalKind(askedText()));
 
   // Small models can't open files themselves: for an edit request, show them the current page.
   if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
     const msg = lastUserMsg();
-    if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
+    if (msg && msg === messages[messages.length - 1] && (looksLikeEdit(msg.content) || removalKind(msg.content)) && !msg.content.includes('<file path=')) {
       const shown = await editFilesToShow();
       if (shown.length && shown[0].content.length < 7000) {
-        msg.content += `\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`;
+        msg.content += `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}`;
         onEvent({ type: 'nudge', text: `Showed the model the current ${shown.map((f) => f.path).join(', ')} to edit` });
       }
     }
@@ -204,6 +218,25 @@ export async function runAgent({
   const perform = async (call, tool) => {
     if (tool && mode === 'plan' && (tool.kind === 'write' || tool.kind === 'exec')) {
       return { ok: false, output: 'Blocked: plan mode is read-only. Finish investigating and present your plan instead.' };
+    }
+    // Only asked to remove things, but the model rewrote a whole file: save just the lines it left out, and keep
+    // every other line as it was (decided before asking, so the approval shows what will really change).
+    let pruned = false;
+    if (call.name === 'write_file' && !call.auto && removal()) {
+      const path = String(call.args?.path || '').trim();
+      const before = path && !createdHere.has(path) ? await workspace.read(path).catch(() => null) : null;
+      if (before?.trim()) {
+        const content = call.args.content ?? '';
+        const kept = hasPlaceholders(content) ? null : keepOnlyRemovals(before, content);
+        if (kept === null) {
+          return {
+            ok: false,
+            output: `Nothing was removed: ${hasPlaceholders(content) ? `that rewrite of ${path} leaves parts out with "..." comments` : `that rewrite of ${path} still has every line`}. Delete only the lines that should go with edit_file (<old> = those lines copied exactly from the file, <new> left empty), one call per spot.`,
+          };
+        }
+        pruned = kept !== content;
+        call.args.content = kept;
+      }
     }
     if (tool && NEEDS_PERMISSION[mode]?.has(tool.kind) && !alwaysAllowed.has(call.name)) {
       onEvent({ type: 'permission', call });
@@ -232,9 +265,17 @@ export async function runAgent({
       onCommand: callbacks.onCommand,
       onCommandData: callbacks.onCommandData,
     });
+    if (pruned && result.ok) result.output += ' Only the removed lines were saved: the user asked to remove things, so every other line was kept exactly as it was.';
     if (result.ok && (call.name === 'write_file' || call.name === 'edit_file')) wroteFiles = true;
     if (result.ok && call.name === 'write_file' && result.display?.created) createdHere.add(String(call.args.path).trim());
     return result;
+  };
+  /** End a turn that changed nothing, saying so plainly (and telling the model, for the next turn). */
+  const nothingSaved = (why, text) => {
+    const said = CLAIMS_DONE.test(text) ? ' The reply says the change was made, but it was not.' : '';
+    messages[messages.length - 1].content += `\n\n[Buddo: nothing was saved, the files are unchanged (${why}).]`;
+    onEvent({ type: 'error', error: `Nothing was changed: ${why}.${said} Your files are as they were — try asking again, or pick a bigger model.` });
+    return { messages, status: 'error' };
   };
   let lastSig = '';
   let repeats = 0;
@@ -393,7 +434,7 @@ export async function runAgent({
         messages.push({
           role: 'user',
           content: shown.length
-            ? `Write the change now.\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`
+            ? `${CLAIMS_DONE.test(text) ? 'Nothing in the project changed yet: no code was written. ' : ''}Write the change now.\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}`
             : 'Write the code now: put the file name on its own line, then the complete code in a fenced code block.',
         });
         onEvent({ type: 'nudge', text: 'The model only answered in words — asked it for the code' });
@@ -451,39 +492,64 @@ export async function runAgent({
           onEvent({ type: 'nudge', text: retry ? `The model's edit didn't match ${target.path} — asked it to try again` : `Asked the model for the whole ${target.path}` });
           continue;
         }
-        if (failed.length) onEvent({ type: 'error', error: failed[0] });
+        if (!saved.length && failed.length) return nothingSaved(`the model's edit didn't match ${target?.path || 'the file'}`, text);
+        if (failed.length) onEvent({ type: 'nudge', text: `One edit didn't apply: ${failed[0]}` });
         onEvent({ type: 'done' });
-        return { messages, status: saved.length ? 'done' : 'error' };
+        return { messages, status: 'done' };
       }
 
       // The model answered with plain code blocks instead of tool calls → save them as files.
       if (canSave) {
-        const files = extractCodeFiles(text || a.thinking, { wantsCode }).filter((f) => wantsCode || !f.inferred);
+        let files = extractCodeFiles(text || a.thinking, { wantsCode, diffs: !!removal() }).filter((f) => wantsCode || !f.inferred);
         const editFiles = files.length ? await readEditFiles() : [];
         const [target, ...related] = editFiles;
-        const { writes, needFull } = await planCodeSave(files, {
+        const edit = !!target && !isNewBuild(askedText());
+        // A new page with its own CSS/JS: make sure the page loads them.
+        if (!edit) files = linkAssets(files);
+        const { writes, needFull, unchanged = [] } = await planCodeSave(files, {
           target,
           related,
-          edit: !!target && !isNewBuild(askedText()),
+          edit,
           removing: asksToRemove(askedText()),
+          removal: edit ? removal() : null,
           read: (p) => workspace.read(p),
         });
+        // The model sent the file back as it already was: say so (it usually thinks it made the change).
+        if (unchanged.length && !writes.length && !needFull && target && nudges < MAX_NUDGES) {
+          nudges++;
+          const shown = editFiles.filter((f) => f.content.length < 9000);
+          messages.push({
+            role: 'user',
+            content: `Nothing changed: your ${unchanged.join(', ')} is exactly the same as the current file${removal() ? ', so nothing was removed' : ''}. Make the change that was asked.\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}`,
+          });
+          onEvent({ type: 'nudge', text: `The model's ${unchanged.join(', ')} was the same as before — asked it to make the change` });
+          continue;
+        }
         // Buddo couldn't tell where the lines go (or the model left parts out): ask again for just the
         // changed lines with a line of context; only as a last resort for the whole file (still saved as line edits).
         if (needFull && !writes.length && target && nudges < MAX_NUDGES) {
           nudges++;
           const shown = editFiles.filter((f) => f.content.length < 9000);
+          const rm = removal();
           messages.push({
             role: 'user',
             content:
               nudges === 1
-                ? `I couldn't tell where those lines go. Write them again with one unchanged line above and below each change, under the file name. Never leave parts out with "..." comments.\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`
-                : `Please write the COMPLETE updated ${target.path} (the whole file, nothing left out) in one code block.\n\n${showFiles([target])}`,
+                ? rm
+                  ? `I couldn't tell which lines to delete. Copy them exactly from the file.\n\n${showFiles(shown)}\n${askRemove(rm, shown.map((f) => f.path))}`
+                  : `I couldn't tell where those lines go. Write them again with one unchanged line above and below each change, under the file name. Never leave parts out with "..." comments.\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`
+                : rm
+                  ? `Please write the COMPLETE ${target.path} as it should end up, in one code block: every line that stays, copied exactly, with only the removed parts left out.\n\n${showFiles([target])}`
+                  : `Please write the COMPLETE updated ${target.path} (the whole file, nothing left out) in one code block.\n\n${showFiles([target])}`,
           });
-          onEvent({ type: 'nudge', text: nudges === 1 ? `Couldn't place the model's lines in ${target.path} — asked it to show where they go` : `Asked the model for the whole ${target.path}` });
+          onEvent({
+            type: 'nudge',
+            text: nudges === 1 ? (rm ? `Couldn't tell which lines of ${target.path} to remove — asked the model again` : `Couldn't place the model's lines in ${target.path} — asked it to show where they go`) : `Asked the model for the whole ${target.path}`,
+          });
           continue;
         }
         const saved = [];
+        let declined = false;
         for (const f of writes.slice(0, 12)) {
           // A rewrite of an existing file: apply just the lines it changes, one edit per spot.
           if (f.edits?.length) {
@@ -505,7 +571,10 @@ export async function runAgent({
                 break;
               }
             }
-            if (denied) continue;
+            if (denied) {
+              declined = true;
+              continue;
+            }
             if (ok) {
               saved.push(`${f.path} (edited)`);
               continue;
@@ -530,9 +599,23 @@ export async function runAgent({
             return { messages, status: 'stopped' };
           }
           if (result.ok) saved.push(f.path + (f.truncated ? ' (may be cut off)' : ''));
+          if (result.denied) declined = true;
           onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
         }
         if (saved.length) messages[messages.length - 1].content += `\n\n[Buddo saved these code blocks as files: ${saved.join(', ')}]`;
+        // Asked for a change, nothing landed: never let "Done! I removed it" stand.
+        if (!saved.length && !declined && wantsCode && (files.length || (CLAIMS_DONE.test(text) && (removal() || looksLikeEdit(askedText()))))) {
+          const why = unchanged.length
+            ? `the code it sent is the same as ${unchanged.join(', ')} already was`
+            : needFull && target
+              ? removal()
+                ? `Buddo couldn't tell which lines of ${target.path} to remove`
+                : `Buddo couldn't tell where the model's code goes in ${target.path}`
+              : files.length
+                ? "the model's code didn't change any file"
+                : 'the model wrote no code';
+          return nothingSaved(why, text);
+        }
       }
       onEvent({ type: 'done' });
       return { messages, status: 'done' };

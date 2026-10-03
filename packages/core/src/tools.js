@@ -221,6 +221,16 @@ export function locateSnippet(content, old) {
   return found;
 }
 
+/** Widen [s, e) to its whole lines and their line break, when it covers nothing but whole lines. */
+function wholeLines(content, s, e) {
+  const ls = content.lastIndexOf('\n', s - 1) + 1;
+  if (content.slice(ls, s).trim()) return [s, e];
+  if (content[e - 1] === '\n') return [ls, e];
+  const le = content.indexOf('\n', e);
+  if (content.slice(e, le === -1 ? content.length : le).trim()) return [s, e];
+  return le === -1 ? [Math.max(0, ls - 1), content.length] : [ls, le + 1];
+}
+
 // After UI changes, nudge the model to look at its own work.
 function visualHint(path, workspace) {
   return workspace.media?.screenshot && /\.(html?|css|scss|jsx|tsx|vue|svelte|astro)$/i.test(path)
@@ -326,7 +336,11 @@ export async function executeTool(call, ctx) {
           };
         }
         let after = content;
-        for (const [s, e] of [...matches].reverse()) after = after.slice(0, s) + neu + after.slice(e);
+        for (const [s, e] of [...matches].reverse()) {
+          // Deleting whole lines: take their line breaks too, so no blank line is left where they were.
+          const [from, to] = neu.trim() ? [s, e] : wholeLines(content, s, e);
+          after = after.slice(0, from) + (from === s && to === e ? neu : '') + after.slice(to);
+        }
         await workspace.write(path, after);
         ctx.onChange?.({ path, before: content, after });
         const stats = diffStats(diffLines(content, after));

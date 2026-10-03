@@ -19,6 +19,25 @@
         if (s.settings && s.settings.accent) document.documentElement.dataset.accent = s.settings.accent;
       } catch (e) {}
     </script>
+    <script>
+      // Multi-core CPU mode: register coi-sw.js (adds the isolation headers), then reload once so it applies.
+      // Only on browsers with COEP "credentialless" (Chrome, Edge, ChromeOS), where nothing else breaks.
+      (function () {
+        if (window.crossOriginIsolated || !window.isSecureContext || !('serviceWorker' in navigator)) return;
+        if (!('credentialless' in HTMLIFrameElement.prototype)) return;
+        navigator.serviceWorker.register('%BASE_URL%coi-sw.js').then(function (reg) {
+          var key = 'buddo-coi-reloaded';
+          try {
+            if (sessionStorage.getItem(key)) return;
+            sessionStorage.setItem(key, '1');
+          } catch (e) {
+            return;
+          }
+          if (navigator.serviceWorker.controller) location.reload();
+          else navigator.serviceWorker.addEventListener('controllerchange', function () { location.reload(); });
+        }).catch(function () {});
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

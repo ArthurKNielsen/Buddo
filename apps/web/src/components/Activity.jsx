@@ -19,7 +19,7 @@ const secs = (ms) => `${Math.max(0, ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
 const tokens = (s) => Math.round((s?.length || 0) / 3.6);
 
 /** What the model is doing right now, in plain words. */
-function describe(item, webllm, engine) {
+export function describe(item, webllm, engine) {
   const last = item.parts[item.parts.length - 1];
   const phase = item.phase || {};
   if (engine === 'webllm' && webllm && !webllm.ready && !webllm.error) {

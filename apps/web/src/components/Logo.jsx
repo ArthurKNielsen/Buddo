@@ -15,8 +15,8 @@ export default function Logo({ size = 28, animated = true, thinking = false }) {
     >
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="var(--accent)" />
-          <stop offset="1" stopColor="var(--accent-2)" />
+          <stop offset="0" stopColor="var(--logo-1, var(--accent))" />
+          <stop offset="1" stopColor="var(--logo-2, var(--accent-2))" />
         </linearGradient>
       </defs>
       <rect x="6" y="10" width="52" height="44" rx="15" fill={`url(#${id})`} />

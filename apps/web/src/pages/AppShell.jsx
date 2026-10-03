@@ -15,23 +15,28 @@ import ModelPicker from '../components/ModelPicker.jsx';
 import HelpModal from '../components/HelpModal.jsx';
 import Toasts from '../components/Toasts.jsx';
 import { stop } from '../lib/runner.js';
+import { skinById } from '../lib/skins.js';
 
 function useTheme() {
   const theme = useStore((s) => s.settings.theme);
   const accent = useStore((s) => s.settings.accent);
+  const skin = skinById(useStore((s) => s.settings.skin));
   useEffect(() => {
+    const root = document.documentElement;
     const apply = () => {
-      const t = theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme;
-      document.documentElement.dataset.theme = t;
+      const t = skin.mode || (theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme);
+      root.dataset.theme = t;
     };
     apply();
-    document.documentElement.dataset.accent = accent;
-    if (theme === 'system') {
-      const mq = matchMedia('(prefers-color-scheme: light)');
-      mq.addEventListener('change', apply);
-      return () => mq.removeEventListener('change', apply);
-    }
-  }, [theme, accent]);
+    root.dataset.accent = accent;
+    root.dataset.skin = skin.id;
+    const mq = matchMedia('(prefers-color-scheme: light)');
+    if (!skin.mode && theme === 'system') mq.addEventListener('change', apply);
+    return () => {
+      mq.removeEventListener('change', apply);
+      delete root.dataset.skin;
+    };
+  }, [theme, accent, skin]);
 }
 
 export default function AppShell() {
@@ -85,8 +90,9 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const buddy = useStore((s) => s.settings.buddy);
   return (
-    <div className="app">
+    <div className={'app' + (buddy ? ' has-buddy' : '')}>
       <div className="app-glow" />
       <AnimatePresence initial={false}>
         {ui.sidebar && (

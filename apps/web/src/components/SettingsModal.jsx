@@ -7,6 +7,7 @@ import { checkEngine, shortModel, precisionOf, usesCpu } from '../lib/engine.js'
 import { MODES } from './Composer.jsx';
 import Modal from './Modal.jsx';
 import Logo from './Logo.jsx';
+import { SKINS } from '../lib/skins.js';
 
 const TABS = [
   { id: 'personality', icon: Smile, label: 'Personality' },
@@ -205,6 +206,38 @@ export default function SettingsModal() {
             <>
               <div className="field">
                 <label>Theme</label>
+                <div className="skin-grid">
+                  {SKINS.map((k) => (
+                    <motion.button
+                      key={k.id}
+                      className={'skin-card' + ((s.skin || 'studio') === k.id ? ' on' : '')}
+                      onClick={() => setSettings({ skin: k.id })}
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <span className="skin-swatch" style={{ background: k.colors[0] }}>
+                        <i style={{ background: k.colors[1] }} />
+                        <b style={{ background: k.colors[2] }} />
+                        <em style={{ background: k.colors[3] }} />
+                      </span>
+                      <span className="skin-name">{k.name}</span>
+                      <span className="skin-blurb">{k.blurb}</span>
+                      {(s.skin || 'studio') === k.id && <Check size={13} className="skin-check" />}
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+              <div className="field row" style={{ flexDirection: 'row' }}>
+                <div style={{ flex: 1 }}>
+                  <label>Buddo on the chat bar</label>
+                  <div className="hint">Buddo stands on the message box and shows what he's doing. Poke him, or grab and pull.</div>
+                </div>
+                <Toggle on={s.buddy} onChange={(v) => setSettings({ buddy: v })} />
+              </div>
+              {s.skin === 'classic' && (
+              <>
+              <div className="field">
+                <label>Mode</label>
                 <div className="seg">
                   {[
                     ['dark', Moon, 'Dark'],
@@ -236,6 +269,8 @@ export default function SettingsModal() {
                   ))}
                 </div>
               </div>
+              </>
+              )}
               <div className="field row" style={{ flexDirection: 'row' }}>
                 <div style={{ flex: 1 }}>
                   <label>Watch Buddo type</label>

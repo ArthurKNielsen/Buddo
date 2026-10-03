@@ -4,6 +4,7 @@ import { ArrowUp, Square, Paperclip, X, ShieldCheck, Zap, Flame, Map as MapIcon,
 import { SLASH_COMMANDS, contextTokens } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { submit, stop } from '../lib/runner.js';
+import Buddy from './Buddy.jsx';
 
 export const MODES = [
   { id: 'ask', label: 'Ask', icon: ShieldCheck, tip: 'Approve every edit and command' },
@@ -211,6 +212,7 @@ export default function Composer() {
   return (
     <div className="composer-wrap">
       <div className="composer-inner">
+        {settings.buddy && <Buddy ducked={menu?.items.length > 0} />}
         <AnimatePresence>
           {menu?.items.length > 0 && (
             <motion.div

@@ -18,6 +18,8 @@ export const DEFAULT_SETTINGS = {
   mode: 'ask',
   ctx: 16384,
   temperature: 0.2,
+  skin: 'studio', // see lib/skins.js
+  buddy: true, // Buddo stands on the chat bar
   theme: 'dark',
   accent: 'violet',
   showThinking: true,

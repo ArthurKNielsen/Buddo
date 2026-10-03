@@ -212,6 +212,7 @@ export default function ToolCard({ part }) {
       ref={cardRef}
       layout="position"
       className={`tool ${part.status}`}
+      data-tool={call.name}
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: 'spring', stiffness: 420, damping: 32 }}

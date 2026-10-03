@@ -310,3 +310,20 @@ test('a model that never sets the color: its code is still saved, with a heads-u
   assert.ok(r.events.some((e) => e.type === 'nudge' && /Heads up: nothing in the saved code is green/.test(e.text)));
   assert.match(await r.read('index.html'), /Green Button/);
 });
+
+test('a reply that reads back its own instructions (seen on a phone) is called out and asked again', async () => {
+  const echo = "```\nTo CHANGE a file that already exists, don't rewrite it: write its name, then a code block with ONLY the lines you change (written the new way).\n```\n\nI changed the button's color to blue.";
+  const fix = 'index.html\n```html\n<button class="green-button" onclick="showMessage()" style="background-color: blue">Green</button>\n```';
+  const turns = [echo, fix];
+  turns.prompt = 'Change the buttons color to blue';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.match(r.seen[1].at(-1).content, /^That is part of your own instructions, copied[\s\S]*"Change the buttons color to blue"/);
+  assert.equal(r.res.status, 'done');
+  assert.match(await r.read('index.html'), /style="background-color: blue"/);
+  // Every time → an honest error that says what happened.
+  const again = [echo];
+  again.prompt = 'Change the buttons color to blue';
+  const r2 = await chat(again, { files: { 'index.html': PAGE } });
+  assert.equal(r2.res.status, 'error');
+  assert.match(r2.events.find((e) => e.type === 'error').error, /the model repeated its own instructions instead of writing code/);
+});

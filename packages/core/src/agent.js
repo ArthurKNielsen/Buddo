@@ -151,11 +151,13 @@ export async function runAgent({
   const editHow = (path) =>
     `Reply with only the change, each marker on its own line. Example (changes <p>Old text</p> to <p>New text</p>):\n\n${path}\n<<<<<<< SEARCH\n<p>Old text</p>\n=======\n<p>New text</p>\n>>>>>>> REPLACE\n\nCopy the SEARCH lines exactly from ${path}. Don't rewrite the whole file.`;
 
-  // Small files are rewritten whole: it's one short reply, while tiny models (0.5B) copy the find/replace
-  // example instead of using it, which cost three calls and no change on a Chromebook.
+  // Tiny models (0.5B) copy the find/replace example instead of using it, so it's never asked for on
+  // small files; a find/replace a model sends anyway is still applied.
   const SMALL_FILE = 2000;
-  const wholeFile = (path) => `Reply with the COMPLETE updated ${path} in one code block.`;
-  const askEdit = (path, content) => (content.length < SMALL_FILE ? wholeFile(path) : editHow(path));
+  // Edits ask for just the changed lines: tiny models answer that naturally, and Buddo finds where they go
+  // (mergeChangedLines). If it can't tell, it asks for the whole file.
+  const askEdit = (path) =>
+    `Reply with ONLY the lines you change, written the new way, in one code block. Don't write the rest of ${path}. To add something new, also include the line just above where it goes.`;
 
   // Small models can't open files themselves: for an edit request, show them the current page.
   if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
@@ -163,7 +165,7 @@ export async function runAgent({
     if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
       const t = await readTarget();
       if (t && t.content.length < 7000) {
-        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${askEdit(t.path, t.content)}`;
+        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${askEdit(t.path)}`;
         onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
       }
     }
@@ -434,9 +436,18 @@ export async function runAgent({
         }
         const saved = [];
         for (const f of writes.slice(0, 12)) {
-          const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true, merged: !!f.merged };
+          let call = f.edit
+            ? { id: `t${Date.now().toString(36)}${id++}`, name: 'edit_file', args: { path: f.path, old: f.edit.old, new: f.edit.new }, auto: true, merged: true }
+            : { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true, merged: !!f.merged };
           onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
-          const result = await perform(call, TOOL_MAP.write_file);
+          let result = await perform(call, TOOL_MAP[call.name]);
+          // The changed block appears twice in the file: save the merged file instead.
+          if (result && !result.ok && !result.denied && f.edit) {
+            onEvent({ type: 'tool-end', id: call.id, ok: false, output: result.output });
+            call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true, merged: true };
+            onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+            result = await perform(call, TOOL_MAP.write_file);
+          }
           if (!result) {
             onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
             onEvent({ type: 'stopped' });

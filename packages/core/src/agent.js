@@ -276,6 +276,11 @@ export async function runAgent({
     if (result.ok && call.name === 'write_file' && result.display?.created) createdHere.add(String(call.args.path).trim());
     return result;
   };
+  /** Is the reply (partly) the system prompt read back, like "# Personality · Your name is Buddo…"? */
+  const repeatsInstructions = (text) => {
+    const hits = text.split('\n').map((l) => l.replace(/^[\s>*#-]+/, '').trim()).filter((l) => l.length >= 40 && system.includes(l));
+    return hits.length >= 2 || hits.some((l) => l.length >= 80);
+  };
   /** End a turn that changed nothing, saying so plainly (and telling the model, for the next turn). */
   const nothingSaved = (why, text) => {
     const said = CLAIMS_DONE.test(text) ? ' The reply says the change was made, but it was not.' : '';
@@ -637,7 +642,21 @@ export async function runAgent({
         if (saved.length && noColor.length) onEvent({ type: 'nudge', text: `Heads up: nothing in the saved code is ${noColor.join(' or ')} — the model may only have written the word. Try a bigger model, or ask again.` });
         // Asked for a change, nothing landed: never let "Done! I removed it" stand.
         if (!saved.length && !declined && wantsCode && (files.length || (CLAIMS_DONE.test(text) && (removal() || looksLikeEdit(askedText()))))) {
-          const why = unchanged.length
+          const echoed = repeatsInstructions(text);
+          // Before giving up, say what went wrong and ask once more (tiny models often get it on the next try).
+          if (nudges < MAX_NUDGES && !unchanged.length && !needFull) {
+            nudges++;
+            const shown = isNewBuild(askedText()) ? [] : await editFilesToShow();
+            messages.push({
+              role: 'user',
+              content: `${echoed ? 'That is part of your own instructions, copied. It is not code for the request.' : 'Nothing in the project changed: your reply had no code for the change.'} The request was "${askedText()}".${shown.length ? `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}` : ' Write the code now: the file name on its own line, then the complete code in a fenced code block.'}`,
+            });
+            onEvent({ type: 'nudge', text: echoed ? 'The model repeated its instructions instead of writing code — asked it again' : 'The model wrote no code for the change — asked it again' });
+            continue;
+          }
+          const why = echoed
+            ? 'the model repeated its own instructions instead of writing code'
+            : unchanged.length
             ? `the code it sent is the same as ${unchanged.join(', ')} already was`
             : needFull && target
               ? removal()
@@ -645,7 +664,9 @@ export async function runAgent({
                 : `Buddo couldn't tell where the model's code goes in ${target.path}`
               : files.length
                 ? "the model's code didn't change any file"
-                : 'the model wrote no code';
+                : hasCode
+                  ? "the model's code wasn't for any of your files"
+                  : 'the model wrote no code';
           return nothingSaved(why, text);
         }
       }

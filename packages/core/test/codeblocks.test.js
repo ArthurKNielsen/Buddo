@@ -97,3 +97,16 @@ test('lite prompt tells tiny models they can write files', async () => {
   assert.match(p, /```html/);
   assert.doesNotMatch(buildSystemPrompt({ lite: true, mode: 'plan', workspace: { name: 'x', capabilities: {} } }), /You CAN create/);
 });
+
+test('short script with its name after the block (real Pocket model reply)', () => {
+  const reply = 'Sure! Below is a simple Python script that prints "Hello, World!" to the console:\n\n```python\nprint("Hello, World!")\n```\n\nYou can save this script in a file named `hello.py` and run it using Python\'s built-in `python` command:\n\n```bash\npython hello.py\n```\n\nThis will output:\n\n```\nHello, World!\n```\n\nFeel free to modify the script to suit your needs!';
+  const files = extractCodeFiles(reply);
+  assert.deepEqual(files.map((f) => [f.path, f.content]), [['hello.py', 'print("Hello, World!")\n']]);
+  // unnamed one-liner: only saved when the user asked for code
+  const bare = 'Here it is:\n```python\nprint("hi")\n```';
+  assert.equal(extractCodeFiles(bare).length, 0);
+  assert.deepEqual(extractCodeFiles(bare, { wantsCode: true }).map((f) => f.path), ['main.py']);
+  // a name after the block that belongs to the NEXT block is not stolen
+  const two = '```js\nconsole.log(1)\nconsole.log(2)\nconsole.log(3)\nconsole.log(4)\n```\nNow create `style.css`:\n```css\nbody { margin: 0 }\n```';
+  assert.equal(extractCodeFiles(two, { wantsCode: true })[0].path, 'script.js');
+});

@@ -26,7 +26,7 @@ function nameFromFirstLine(code) {
  * Find code blocks that should become files.
  * Returns [{ path, content, lang, inferred, truncated }].
  */
-export function extractCodeFiles(text) {
+export function extractCodeFiles(text, { wantsCode = false } = {}) {
   const out = [];
   const lines = text.split('\n');
   let i = 0;
@@ -67,6 +67,20 @@ export function extractCodeFiles(text) {
     }
     if (!path && before) path = FILE_RE.exec(` ${before} `)?.[1] || null;
     const lang = EXT[langWord] || (path ? path.split('.').pop().toLowerCase() : '');
+    // "You can save this script in a file named hello.py" — a name right after the block counts
+    // when its extension matches the block's language (so it isn't the next block's file).
+    if (!path && lang) {
+      for (let k = j + 1, seen = 0; k < lines.length && seen < 2; k++) {
+        if (!lines[k].trim()) continue;
+        if (/^\s*(`{3,}|~{3,})/.test(lines[k])) break;
+        seen++;
+        const name = FILE_RE.exec(` ${lines[k]} `)?.[1];
+        if (name && EXT[name.split('.').pop().toLowerCase()] === lang) {
+          path = name;
+          break;
+        }
+      }
+    }
     if (!code.trim() || SKIP_LANG.test(langWord)) {
       i = j + 1;
       continue;
@@ -102,7 +116,13 @@ export function extractCodeFiles(text) {
     const lines = f.content.split('\n').length;
     return f.lang === 'html' ? /<html|<!doctype|<body/i.test(f.content) || lines >= 6 : lines >= 4;
   };
-  return out.filter(worthSaving).map(({ info, ...f }) => ({ ...f, path: f.path.replace(/^\.?\//, '') }));
+  let keep = out.filter(worthSaving);
+  // The user asked for code and the model wrote one short unnamed block: that block IS the answer.
+  if (!keep.length && wantsCode) {
+    const best = out.filter((f) => f.path).sort((a, b) => b.content.length - a.content.length)[0];
+    if (best) keep = [best];
+  }
+  return keep.map(({ info, ...f }) => ({ ...f, path: f.path.replace(/^\.?\//, '') }));
 }
 
 const BUILD_VERBS = /\b(build|make|create|write|code|generate|add|fix|change|update|edit|improve|redo|rewrite|style|design|implement|program|develop|put|turn|convert|refactor|clone|copy|recreate)\b/i;

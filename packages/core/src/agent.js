@@ -255,7 +255,7 @@ export async function runAgent({
 
       // The model answered with plain code blocks instead of tool calls → save them as files.
       if (autoSaveCode && !wroteFiles && mode !== 'plan' && workspace.write) {
-        const files = extractCodeFiles(text || a.thinking).filter((f) => wantsCode || !f.inferred);
+        const files = extractCodeFiles(text || a.thinking, { wantsCode }).filter((f) => wantsCode || !f.inferred);
         const saved = [];
         for (const f of files.slice(0, 12)) {
           const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true };

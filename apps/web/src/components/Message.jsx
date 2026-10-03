@@ -16,8 +16,8 @@ const enter = {
   transition: { type: 'spring', stiffness: 380, damping: 32 },
 };
 
-const Markdown = memo(function Markdown({ text }) {
-  return <div className="md" onClick={handleCopyClick} dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />;
+const Markdown = memo(function Markdown({ text, fold = false }) {
+  return <div className="md" onClick={handleCopyClick} dangerouslySetInnerHTML={{ __html: renderMarkdown(text, { fold }) }} />;
 });
 
 function Thinking({ part, live }) {
@@ -80,6 +80,8 @@ function CopyButton({ text }) {
 
 function Assistant({ item, sessionId, last }) {
   const running = useStore((s) => s.running?.sessionId === sessionId) && item.status === 'streaming';
+  // The reply's code was saved into files: fold the full script the model wrote (the change cards show what changed).
+  const fold = !running && item.parts.some((p) => p.type === 'tool' && p.call?.auto && !p.call.quick && p.status === 'done');
   const [showLog, setShowLog] = useState(false);
   const text = item.parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n\n');
   const secs = item.endedAt ? ((item.endedAt - item.startedAt) / 1000).toFixed(1) : null;
@@ -92,7 +94,7 @@ function Assistant({ item, sessionId, last }) {
       <div className="msg-body">
         {item.parts.map((p, i) =>
           p.type === 'text' ? (
-            <Markdown key={i} text={p.text} />
+            <Markdown key={i} text={p.text} fold={fold} />
           ) : p.type === 'note' ? (
             <div key={i} className="msg-note">
               <Info size={12} /> {p.text}

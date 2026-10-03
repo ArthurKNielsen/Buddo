@@ -46,15 +46,27 @@ marked.use({
 });
 
 const cache = new Map();
-export function renderMarkdown(src) {
-  if (cache.has(src)) return cache.get(src);
+/**
+ * fold: Buddo already saved this reply's code (often only a line or two of it), so long code blocks are folded
+ * into one line instead of filling the chat with the whole script the model wrote.
+ */
+export function renderMarkdown(src, { fold = false } = {}) {
+  const key = `${fold ? 'f' : ''}:${src}`;
+  if (cache.has(key)) return cache.get(key);
   // Close an unterminated fence while streaming so the code block renders nicely.
   // A bare pasted HTML page becomes one code block (the same thing Buddo saves as a file).
   let s = fenceRawHtml(src);
   if ((s.match(/^```/gm) || []).length % 2 === 1) s += '\n```';
-  const html = DOMPurify.sanitize(marked.parse(s), { ADD_ATTR: ['target', 'data-copy'] });
+  let html = DOMPurify.sanitize(marked.parse(s), { ADD_ATTR: ['target', 'data-copy'] });
+  if (fold) {
+    html = html.replace(/<div class="codeblock">[\s\S]*?<\/code><\/pre><\/div>/g, (block) => {
+      const lines = (block.match(/\n/g) || []).length + 1;
+      if (lines < 5) return block;
+      return `<details class="code-fold"><summary>Code the model wrote (${lines} lines) · Buddo saved only what changed, shown below</summary>${block}</details>`;
+    });
+  }
   if (cache.size > 300) cache.clear();
-  cache.set(src, html);
+  cache.set(key, html);
   return html;
 }
 

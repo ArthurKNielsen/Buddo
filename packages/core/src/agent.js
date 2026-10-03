@@ -7,6 +7,7 @@ import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { missingColors } from './colors.js';
+import { quickChange } from './quick.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml, linkAssets } from './codeblocks.js';
 import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders } from './edits.js';
 
@@ -36,6 +37,24 @@ function trimImages(messages, keep = 2) {
     if (++seen > keep) out[i] = { ...out[i], images: undefined, content: out[i].content + '\n[older image removed to save context]' };
   }
   return out;
+}
+
+/**
+ * Old copies of files Buddo pasted in for small models ("[Current index.html]" + the code) and code the model
+ * wrote that was already saved into files: only the newest copy matters, and on a tiny model with room for
+ * ~4,000 tokens the old ones crowd out the actual conversation.
+ */
+export function slimHistory(messages) {
+  const shown = (m) => m.role === 'user' && /\[Current [^\]\n]+\]\n`{3,}/.test(m.content);
+  let newest = -1;
+  for (let i = messages.length - 1; i >= 0 && newest < 0; i--) if (shown(messages[i])) newest = i;
+  return messages.map((m, i) => {
+    if (i !== newest && shown(m)) return { ...m, content: m.content.replace(/\[Current ([^\]\n]+)\]\n(`{3,})[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g, '[an older copy of $1 was shown here]') };
+    if (m.role === 'assistant' && i < messages.length - 1 && m.content.includes('[Buddo saved these code blocks as files:')) {
+      return { ...m, content: m.content.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm, '```\n[this code was saved into the files]\n```') };
+    }
+    return m;
+  });
 }
 
 /** Shrink old tool results when the conversation gets close to the context budget. */
@@ -122,6 +141,7 @@ export async function runAgent({
   lite = false,
   autoSaveCode = true,
   thinkAloud = false,
+  quickEdits = true,
 }) {
   const ctx = context || (await gatherContext(workspace));
   const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx });
@@ -208,18 +228,6 @@ export async function runAgent({
   // The user only asked to take things out: 'remove' (named what goes) or 'keep' (named what stays).
   const removal = () => (mode === 'plan' ? null : removalKind(askedText()));
 
-  // Small models can't open files themselves: for an edit request, show them the current page.
-  if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
-    const msg = lastUserMsg();
-    if (msg && msg === messages[messages.length - 1] && (looksLikeEdit(msg.content) || removalKind(msg.content)) && !msg.content.includes('<file path=')) {
-      const shown = await editFilesToShow();
-      if (shown.length && shown[0].content.length < 7000) {
-        msg.content += `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}`;
-        onEvent({ type: 'nudge', text: `Showed the model the current ${shown.map((f) => f.path).join(', ')} to edit` });
-      }
-    }
-  }
-
   /** Ask permission if needed, then run the tool. Returns the result, or null if the user stopped. */
   const perform = async (call, tool) => {
     if (tool && mode === 'plan' && (tool.kind === 'write' || tool.kind === 'exec')) {
@@ -276,6 +284,41 @@ export async function runAgent({
     if (result.ok && call.name === 'write_file' && result.display?.created) createdHere.add(String(call.args.path).trim());
     return result;
   };
+  /** Save a change Buddo worked out itself as line edits (or a new file), and say what was done. */
+  const applyQuick = async ({ changes, summary }) => {
+    const saved = [];
+    for (const c of changes) {
+      const edits = c.before == null ? null : rewriteAsEdits(c.before, c.after);
+      const calls = edits?.length
+        ? edits.map((e) => ({ name: 'edit_file', args: { path: c.path, old: e.old, new: e.new } }))
+        : [{ name: 'write_file', args: { path: c.path, content: c.after } }];
+      for (const x of calls) {
+        const call = { id: `t${Date.now().toString(36)}${id++}`, ...x, auto: true, quick: true };
+        onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+        const result = await perform(call, TOOL_MAP[call.name]);
+        if (!result) {
+          onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
+          onEvent({ type: 'stopped' });
+          return { messages, status: 'stopped' };
+        }
+        onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
+        if (result.denied) {
+          const text = 'Okay, I left it as it was.';
+          onEvent({ type: 'text', delta: text });
+          messages.push({ role: 'assistant', content: text });
+          onEvent({ type: 'done' });
+          return { messages, status: 'done' };
+        }
+        if (!result.ok) return saved.length ? nothingSaved(result.output, '') : null; // let the model try instead
+      }
+      saved.push(c.before == null ? c.path : `${c.path} (edited)`);
+    }
+    const text = `Done: ${summary} Buddo did this one itself, so only what you asked for changed.`;
+    onEvent({ type: 'text', delta: text });
+    messages.push({ role: 'assistant', content: `${text}\n\n[Buddo saved these code blocks as files: ${saved.join(', ')}]` });
+    onEvent({ type: 'done' });
+    return { messages, status: 'done' };
+  };
   /** Is the reply (partly) the system prompt read back, like "# Personality · Your name is Buddo…"? */
   const repeatsInstructions = (text) => {
     const hits = text.split('\n').map((l) => l.replace(/^[\s>*#-]+/, '').trim()).filter((l) => l.length >= 40 && system.includes(l));
@@ -293,6 +336,38 @@ export async function runAgent({
   let incomplete = 0;
   let id = 0;
 
+  // Simple requests ("add a green button", "make the button blue", "remove the heading"): Buddo does them itself,
+  // exactly, so no model can overdo them, miss them or rewrite the file. Everything else goes to the model.
+  if (quickEdits && autoSaveCode && mode !== 'plan' && workspace.write) {
+    const msg = lastUserMsg();
+    if (msg && msg === messages[messages.length - 1]) {
+      // Without the files an @mention attached; a mentioned page is the one to change.
+      const request = asked.split(/\n\n(?:<file path=|\()/)[0].replace(/(^|\s)@[\w./-]+/g, ' ').trim();
+      const mentioned = /(?:^|\s)@([\w./-]+\.html?)\b/i.exec(asked)?.[1];
+      const all = mentioned ? [{ path: mentioned, content: await workspace.read(mentioned).catch(() => null) }].filter((f) => f.content !== null) : await readEditFiles();
+      const [page = null, ...files] = all;
+      const empty = !page && !(await workspace.list('.', 1).catch(() => [null])).length;
+      const quick = quickChange(request, { page, files, empty });
+      if (quick) {
+        const result = await applyQuick(quick);
+        if (result) return result;
+      }
+    }
+  }
+
+  // Small models can't open files themselves: for an edit request, show them the current page.
+  if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
+    const msg = lastUserMsg();
+    if (msg && msg === messages[messages.length - 1] && (looksLikeEdit(msg.content) || removalKind(msg.content)) && !msg.content.includes('<file path=')) {
+      const shown = await editFilesToShow();
+      if (shown.length && shown[0].content.length < 7000) {
+        msg.content += `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}`;
+        onEvent({ type: 'nudge', text: `Showed the model the current ${shown.map((f) => f.path).join(', ')} to edit` });
+      }
+    }
+  }
+
+
   for (let step = 0; step < maxSteps; step++) {
     const ctrl = linkSignal(signal);
     let raw = '';
@@ -305,7 +380,7 @@ export async function runAgent({
     let announced = false;
     let streamedSize = -1;
 
-    const wire = [{ role: 'system', content: system }, ...compactForModel(messages, contextBudget)].map((m) =>
+    const wire = [{ role: 'system', content: system }, ...compactForModel(slimHistory(messages), contextBudget)].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
     );
     // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").

@@ -59,8 +59,20 @@ export function liteMode(settings = useStore.getState().settings) {
 }
 
 let webllmEngine = null;
-let webllmLoaded = '';
+let webllmLoaded = ''; // the build in GPU memory
+let webllmReady = ''; // …and it passed the GPU check (only then may chats use it)
 let webllmLoading = null;
+
+// WebLLM runs ONE generation at a time. Two at once (e.g. the GPU check while a chat starts) corrupt its
+// conversation state ("Message error should not be 0"), so every use of the engine waits its turn.
+let engineTail = Promise.resolve();
+function acquireEngine() {
+  let release;
+  const mine = new Promise((r) => (release = r));
+  const before = engineTail;
+  engineTail = before.then(() => mine);
+  return before.then(() => release);
+}
 
 export const hasWebGPU = () => typeof navigator !== 'undefined' && 'gpu' in navigator;
 
@@ -126,9 +138,14 @@ const LONG_CONTEXT = `You are checking a web page. The secret word is BANANA.\n\
 /** Ask the loaded model easy questions, with a short and a long prompt. Broken GPU math can't answer them. */
 async function gpuGivesSaneAnswers(engine) {
   const ask = async (messages, max = 48) => {
-    const r = await engine.chat.completions.create({ messages, temperature: 0, max_tokens: max });
-    await engine.resetChat?.().catch?.(() => {});
-    return r.choices?.[0]?.message?.content || '';
+    const release = await acquireEngine();
+    try {
+      const r = await engine.chat.completions.create({ messages, temperature: 0, max_tokens: max });
+      await engine.resetChat?.()?.catch?.(() => {});
+      return r.choices?.[0]?.message?.content || '';
+    } finally {
+      release();
+    }
   };
   const short = await ask([{ role: 'user', content: 'What is 2+2? Reply with just the number.' }]);
   if (!/\b4\b|\bfour\b/i.test(short) && !looksSane(await ask([{ role: 'user', content: 'Say hello.' }]), 'Say hello.')) return false;
@@ -158,11 +175,17 @@ async function loadOnGpu(model) {
   webllmLib ||= await import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2');
   const onProgress = (p) => status(p.text, p.progress);
   const ctx = { context_window_size: isPocketModel(model) ? 4096 : 8192 };
-  if (webllmEngine) {
-    webllmEngine.setInitProgressCallback?.(onProgress);
-    await webllmEngine.reload(model, ctx);
-  } else {
-    webllmEngine = await webllmLib.CreateMLCEngine(model, { initProgressCallback: onProgress }, ctx);
+  webllmReady = '';
+  const release = await acquireEngine();
+  try {
+    if (webllmEngine) {
+      webllmEngine.setInitProgressCallback?.(onProgress);
+      await webllmEngine.reload(model, ctx);
+    } else {
+      webllmEngine = await webllmLib.CreateMLCEngine(model, { initProgressCallback: onProgress }, ctx);
+    }
+  } finally {
+    release();
   }
   webllmLoaded = model;
   return webllmEngine;
@@ -176,7 +199,8 @@ export async function loadWebLLM(baseModel) {
   if (usesCpu()) return loadCpu(baseModel);
   let precision = await webllmPrecision();
   let model = withPrecision(baseModel, precision);
-  if (webllmEngine && webllmLoaded === model) return webllmEngine;
+  if (webllmEngine && webllmReady === model) return webllmEngine;
+  // Already loading/checking (e.g. started when the model was picked): wait for that to finish.
   if (webllmLoading) return webllmLoading;
   const st = useStore.getState();
   const checking = (text) => useStore.setState({ webllm: { text, progress: 0 } });
@@ -211,11 +235,14 @@ export async function loadWebLLM(baseModel) {
     err.gpuBroken = true;
     throw err;
   })();
-  try {
-    const engine = await webllmLoading;
-    markVerified(model);
-    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: model } });
+  webllmLoading = webllmLoading.then((engine) => {
+    webllmReady = webllmLoaded;
+    markVerified(webllmLoaded);
+    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: webllmLoaded } });
     return engine;
+  });
+  try {
+    return await webllmLoading;
   } catch (e) {
     useStore.setState({ webllm: { text: e.message, progress: 0, error: !e.gpuBroken } });
     throw e;
@@ -247,32 +274,50 @@ function webllmProvider() {
       }
       const prompt = [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
       let text = '';
-      // WebLLM keeps the conversation in its KV cache between calls; start clean when asked (e.g. after an empty reply).
-      if (options.fresh) await engine.resetChat?.();
-      const chunks = await engine.chat.completions.create({
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        stream: true,
-        temperature: options.temperature ?? 0.2,
-        // Room for a complete small web page (index.html + css + js) even on Pocket models.
-        max_tokens: 2048,
-        stream_options: { include_usage: true },
-      });
-      for await (const c of chunks) {
-        if (signal?.aborted) {
-          engine.interruptGenerate();
-          break;
-        }
-        const t = c.choices?.[0]?.delta?.content;
-        if (t) {
-          // Catch broken GPU math early instead of streaming a wall of nonsense.
-          if (text.length < 1500 && looksGarbled((text += t), prompt)) {
-            engine.interruptGenerate();
-            throw new Error(`GARBLED: the model's output came out as gibberish — this GPU computes the ${precisionOf(webllmLoaded) || 'fast'} version wrong.`);
+      const release = await acquireEngine();
+      let it = null;
+      let finished = false;
+      try {
+        // WebLLM keeps the conversation in its KV cache between calls; start clean when asked (e.g. after an empty reply).
+        if (options.fresh) await engine.resetChat?.();
+        const chunks = await engine.chat.completions.create({
+          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          stream: true,
+          temperature: options.temperature ?? 0.2,
+          // Room for a complete small web page (index.html + css + js) even on Pocket models.
+          max_tokens: 2048,
+          stream_options: { include_usage: true },
+        });
+        // Iterate by hand: leaving a `for await` early would abandon WebLLM mid-reply (see finally).
+        it = chunks[Symbol.asyncIterator]();
+        while (true) {
+          const { value: c, done } = await it.next();
+          if (done) {
+            finished = true;
+            break;
           }
-          yield { type: 'text', text: t };
+          if (signal?.aborted) break;
+          const t = c.choices?.[0]?.delta?.content;
+          if (t) {
+            // Catch broken GPU math early instead of streaming a wall of nonsense.
+            if (text.length < 1500 && looksGarbled((text += t), prompt)) {
+              throw new Error(`GARBLED: the model's output came out as gibberish — this GPU computes the ${precisionOf(webllmLoaded) || 'fast'} version wrong.`);
+            }
+            yield { type: 'text', text: t };
+          }
+          if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
+          if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: c.usage.extra?.decode_tokens_per_s };
         }
-        if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
-        if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: c.usage.extra?.decode_tokens_per_s };
+      } finally {
+        // Stopped early (tool call found, gibberish, user pressed stop): tell WebLLM to stop and let it finish
+        // its bookkeeping, so the next message starts from a clean state.
+        if (it && !finished) {
+          engine.interruptGenerate();
+          try {
+            while (!(await it.next()).done);
+          } catch {}
+        }
+        release();
       }
       // A whole reply of one or two symbols ("?", "(") is what broken GPU math looks like.
       const t = text.trim();

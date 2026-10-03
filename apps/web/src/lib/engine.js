@@ -100,6 +100,15 @@ export async function webllmPrecision(settings = useStore.getState().settings) {
 /** "f32" / "f16" for a WebLLM model id, or '' for other engines. */
 export const precisionOf = (id = '') => (/^cpu:/.test(id) ? 'cpu' : /q4f32_1/.test(id) ? 'f32' : /q4f16_1/.test(id) ? 'f16' : '');
 export const shortModel = (id = '') => id.replace(/^cpu:/, '').replace(/-q4f(16|32)_1-MLC$/, '');
+
+// On the CPU every token counts: point people at the smallest coder model once per visit (never switch it for them).
+let cpuTipShown = false;
+function cpuTip(model) {
+  const coder = WEBLLM_MODELS.find((m) => m.pocket);
+  if (cpuTipShown || shortModel(model) === shortModel(coder.id)) return;
+  cpuTipShown = true;
+  useStore.getState().toast(`Tip: on CPU, ${coder.label} is the fastest model for code — pick it in the model menu`, 'info');
+}
 const withPrecision = (model, precision) => (precision === 'f32' ? model.replace('q4f16_1', 'q4f32_1') : model);
 
 /** Run in-browser models on the CPU (wllama) instead of WebGPU? */
@@ -262,7 +271,10 @@ function webllmProvider() {
       return WEBLLM_MODELS.map((m) => ({ id: m.id, label: m.label }));
     },
     async *stream({ model, messages, signal, options = {} }) {
-      const cpu = () => cpuStream({ model, messages, signal, temperature: options.temperature ?? 0.2 });
+      const cpu = () => {
+        cpuTip(model);
+        return cpuStream({ model, messages, signal, temperature: options.temperature ?? 0.2 });
+      };
       if (usesCpu()) return yield* cpu();
       let engine;
       try {

@@ -149,6 +149,8 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     mode: mode || settings.mode,
     signal: ctrl.signal,
     contextBudget: lite ? 4096 : settings.engine === 'webllm' ? 8192 : settings.ctx,
+    // Tiny/CPU models: each step re-reads the whole prompt, so a runaway loop costs minutes. "continue" resumes.
+    maxSteps: lite ? 8 : undefined,
     vision,
     lite,
     thinkAloud: thinkAloud(settings),

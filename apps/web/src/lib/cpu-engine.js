@@ -45,7 +45,9 @@ export async function loadCpu(model) {
       },
     );
     loaded = repo;
-    useStore.setState({ webllm: { text: 'Ready (CPU)', progress: 1, ready: true, loaded: `cpu:${baseId(model)}`, cpu: true } });
+    // One thread means the page isn't cross-origin isolated (see public/coi-sw.js) — say so, it's ~2–4× slower.
+    const threads = wllama.getNumThreads?.() || 1;
+    useStore.setState({ webllm: { text: `Ready (CPU, ${threads} thread${threads === 1 ? '' : 's'})`, progress: 1, ready: true, loaded: `cpu:${baseId(model)}`, cpu: true, threads } });
     return wllama;
   })();
   try {

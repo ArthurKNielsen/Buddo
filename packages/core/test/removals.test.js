@@ -249,3 +249,27 @@ test('edit_file deleting whole lines leaves no blank line behind', async () => {
   await executeTool({ name: 'edit_file', args: { path: 'index.html', old: ' onclick="showMessage()"', new: '' } }, { workspace });
   assert.match(await fs.readFile(path.join(dir, 'index.html'), 'utf8'), /<button class="green-button">Green<\/button>/, 'part of a line: just that part');
 });
+
+test('"add a green button" answered with the example page (<h1>Hello</h1>): not saved, asked again', async () => {
+  const turns = ['index.html\n```html\n<!DOCTYPE html>\n<html><body><h1>Hello</h1></body></html>\n```', 'index.html\n```html\n<!DOCTYPE html>\n<html>\n<body>\n<button style="background: green; color: white;">Click me</button>\n</body>\n</html>\n```'];
+  turns.prompt = 'add a green button';
+  const r = await chat(turns);
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[1].at(-1).content, /example page from your instructions, copied[\s\S]*"add a green button"/);
+  const page = await r.read('index.html');
+  assert.match(page, /<button style="background: green/);
+  assert.doesNotMatch(page, /Hello/);
+});
+
+test('the example page copied every time ends in "Nothing was changed"; asking for hello is fine', async () => {
+  const copy = '```html\n<html><body><h1>Hello</h1></body></html>\n```';
+  const turns = [copy];
+  turns.prompt = 'add a green button';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'error');
+  assert.match(r.events.find((e) => e.type === 'error').error, /copied the example page/);
+  assert.equal(await r.read('index.html'), PAGE);
+  const ok = [copy];
+  ok.prompt = 'make a page that says hello';
+  assert.match(await (await chat(ok)).read('index.html'), /<h1>Hello<\/h1>/);
+});

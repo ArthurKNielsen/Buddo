@@ -14,6 +14,11 @@ export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 // "I removed the title", "The button has been updated", "Done!": the reply says the change is made.
 const CLAIMS_DONE = /\b(?:i(?:'ve|’ve| have)?|has been|have been|is now|are now)\s+(?:now\s+)?(?:removed|deleted|changed|updated|made|added|replaced|edited|fixed|modified|cleaned|moved|renamed|turned|styled)\b|^\s*(?:all )?done\b/im;
 
+// The example page in the lite prompt (<h1>Hello</h1>), sent back instead of what was asked (seen on a phone:
+// "add a green button" → a page that says Hello).
+const copiedExample = (code = '') =>
+  code.replace(/<!doctype[^>]*>|<\/?(?:html|head|body)\b[^>]*>|<meta\b[^>]*>|<title>[\s\S]*?<\/title>|\s+/gi, '').toLowerCase() === '<h1>hello</h1>';
+
 // Vision models spend roughly this many tokens per attached image.
 const IMAGE_TOKENS = 1000;
 
@@ -504,6 +509,17 @@ export async function runAgent({
         const editFiles = files.length ? await readEditFiles() : [];
         const [target, ...related] = editFiles;
         const edit = !!target && !isNewBuild(askedText());
+        if (files.some((f) => copiedExample(f.content)) && !/\bhello\b/i.test(askedText())) {
+          if (nudges >= MAX_NUDGES) return nothingSaved('the model copied the example page from its instructions instead of what you asked', text);
+          nudges++;
+          const shown = edit ? editFiles.filter((f) => f.content.length < 9000) : [];
+          messages.push({
+            role: 'user',
+            content: `That is the example page from your instructions, copied. It is not what was asked. Write the code for this request instead: "${askedText()}".${shown.length ? `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}` : ' Put the file name on its own line, then the complete code in a fenced code block.'}`,
+          });
+          onEvent({ type: 'nudge', text: 'The model copied the example page instead of doing what you asked — asked it again' });
+          continue;
+        }
         // A new page with its own CSS/JS: make sure the page loads them.
         if (!edit) files = linkAssets(files);
         const { writes, needFull, unchanged = [] } = await planCodeSave(files, {

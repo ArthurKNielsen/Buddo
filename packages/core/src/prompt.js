@@ -39,6 +39,7 @@ index.html
 <html><body><h1>Hello</h1></body></html>
 \`\`\`
 
+That page is only an example of the format: never copy it, write what the user asks for.
 Use one block per file (for example index.html, styles.css, script.js). New files: write the whole file, never "..." placeholders.
 To CHANGE a file that already exists, don't rewrite it: write its name, then a code block with ONLY the lines you change (written the new way). To add lines, include the line just above where they go. To REMOVE lines, write its name, then a code block with only the lines to delete, each starting with "- ".
 Make exactly what was asked, nothing extra: asked for a button, write just that button. A color or style goes in the CSS: a "green button" has a green background, not the word Green on it.`}

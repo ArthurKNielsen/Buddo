@@ -100,8 +100,8 @@ function webllmProvider() {
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         stream: true,
         temperature: options.temperature ?? 0.2,
-        // Short replies keep tiny models snappy on phones.
-        max_tokens: isPocketModel(model) ? 900 : 2048,
+        // Room for a complete small web page (index.html + css + js) even on Pocket models.
+        max_tokens: 2048,
         stream_options: { include_usage: true },
       });
       for await (const c of chunks) {

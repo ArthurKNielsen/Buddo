@@ -2,7 +2,22 @@
 
 import { TOOL_MAP, BIG_PARAMS } from './tools.js';
 
-const OPEN_RE = /<tool:([a-z_]+)\s*>/;
+// Tiny models often drop the "tool:" prefix (<write_file>…</write_file>); accept that for known tools.
+const OPEN_RE = new RegExp(`<(tool:)?([a-z_]+)\\s*>`, 'g');
+// A bare tag only counts when a parameter follows (so HTML like <search> in code is left alone).
+function bareCall(name, after) {
+  const tool = TOOL_MAP[name];
+  if (!tool || tool.params.includes(name)) return false;
+  const next = after.trimStart();
+  return !next || tool.params.some((p) => next.startsWith(`<${p}>`) || `<${p}>`.startsWith(next));
+}
+function findOpen(text) {
+  OPEN_RE.lastIndex = 0;
+  for (let m; (m = OPEN_RE.exec(text)); ) {
+    if (m[1] || bareCall(m[2], text.slice(m.index + m[0].length))) return { index: m.index, length: m[0].length, name: m[2], prefix: m[1] || '' };
+  }
+  return null;
+}
 
 function trimBlock(v) {
   return v.replace(/^\r?\n/, '').replace(/\r?\n$/, '');
@@ -70,13 +85,13 @@ export function parsePartial(name, body) {
 
 /** Find the first tool call in `text`. */
 export function findToolCall(text) {
-  const m = OPEN_RE.exec(text);
+  const m = findOpen(text);
   const json = findJsonToolCall(text);
   if (json && (!m || json.start < m.index)) return json;
   if (!m) return null;
-  const name = m[1];
-  const close = `</tool:${name}>`;
-  const bodyStart = m.index + m[0].length;
+  const name = m.name;
+  const close = `</${m.prefix}${name}>`;
+  const bodyStart = m.index + m.length;
   const end = text.indexOf(close, bodyStart);
   if (end === -1) return { name, complete: false, start: m.index, partial: parsePartial(name, text.slice(bodyStart)) };
   return {

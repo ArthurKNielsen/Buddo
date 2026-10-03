@@ -28,17 +28,25 @@ export function availableTools(workspace, { lite = false, profile } = {}) {
 /** Compact prompt (~9× shorter) for tiny models on phones, where reading the prompt is the slow part. */
 function litePrompt({ workspace, mode, tree, memory, profile }) {
   const tools = availableTools(workspace, { lite: true, profile });
+  const plan = mode === 'plan';
   return `You are a helpful coding assistant working in the user's project "${workspace?.name || 'project'}".
-To act, write ONE tool call like this, then stop and wait for the result:
-<tool:write_file>
-<path>index.html</path>
-<content>
-<h1>Hello</h1>
-</content>
-</tool:write_file>
+${plan ? 'Plan mode: do not write files. Reply with a short numbered plan.' : `You CAN create and change files: Buddo saves your code into the project for you. Never say you cannot write files or code.
+To create or replace a file, write its name on its own line, then the COMPLETE file in a fenced code block:
 
+index.html
+\`\`\`html
+<!DOCTYPE html>
+<html><body><h1>Hello</h1></body></html>
+\`\`\`
+
+Use one block per file (for example index.html, styles.css, script.js). Always write the whole file, never "..." placeholders.`}
+
+Optional tools (write ONE, then stop and wait for the result):
+<tool:read_file>
+<path>index.html</path>
+</tool:read_file>
 Tools: ${tools.map((t) => `${t.name}(${t.params.slice(0, 3).join(', ')})`).join(' · ')}
-Rules: read a file before editing it. Keep replies short. When done, answer WITHOUT a tool call.${mode === 'plan' ? ' Plan mode: do not write files.' : ''}
+Rules: read a file before changing it. Keep explanations short.
 ${tree ? `\nFiles:\n${tree.split('\n').slice(0, 25).join('\n')}\n` : ''}${memory ? `\nProject notes:\n${memory.slice(0, 600)}\n` : ''}
 ${personalityPrompt(profile, { lite: true })}`;
 }

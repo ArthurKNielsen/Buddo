@@ -109,6 +109,10 @@ function Assistant({ item, sessionId, last }) {
         {item.parts.map((p, i) =>
           p.type === 'text' ? (
             <Markdown key={i} text={p.text} />
+          ) : p.type === 'note' ? (
+            <div key={i} className="msg-note">
+              <Info size={12} /> {p.text}
+            </div>
           ) : p.type === 'thinking' ? (
             <Thinking key={i} part={p} live={running} />
           ) : (

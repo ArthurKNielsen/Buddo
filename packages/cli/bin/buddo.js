@@ -663,7 +663,8 @@ function renderer() {
         case 'tool-start': {
           flush();
           stopSpinner();
-          streamedCall = !!live && (e.call.name === 'write_file' || e.call.name === 'edit_file');
+          // Auto-saved code blocks were already printed as text.
+          streamedCall = e.call.auto || (!!live && (e.call.name === 'write_file' || e.call.name === 'edit_file'));
           if (live) {
             const code = e.call.name === 'write_file' ? e.call.args.content : e.call.args.new;
             const lines = (code || '').split('\n');
@@ -671,9 +672,14 @@ function renderer() {
             live = null;
           }
           const name = toolNames[e.call.name] || e.call.name;
-          console.log(`\n${C.green('⏺')} ${C.bold(name)}${C.dim('(')}${describeCall(e.call)}${C.dim(')')}`);
+          console.log(`\n${C.green('⏺')} ${C.bold(name)}${C.dim('(')}${describeCall(e.call)}${C.dim(')')}${e.call.auto ? C.dim(' · from code block') : ''}`);
           break;
         }
+        case 'nudge':
+          flush();
+          stopSpinner();
+          console.log(C.dim(`\n  ℹ ${e.text}`));
+          break;
         case 'tool-end': {
           stopSpinner();
           const d = e.display;

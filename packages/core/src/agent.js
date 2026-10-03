@@ -6,6 +6,7 @@ import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
+import { extractCodeFiles, asksForCode, isRefusal } from './codeblocks.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -109,10 +110,38 @@ export async function runAgent({
   vision = false,
   profile,
   lite = false,
+  autoSaveCode = true,
 }) {
   const ctx = context || (await gatherContext(workspace));
   const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, ...ctx });
   const alwaysAllowed = new Set();
+  let wroteFiles = false;
+  let nudged = false;
+  const lastUserText = () => [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
+
+  /** Ask permission if needed, then run the tool. Returns the result, or null if the user stopped. */
+  const perform = async (call, tool) => {
+    if (tool && mode === 'plan' && (tool.kind === 'write' || tool.kind === 'exec')) {
+      return { ok: false, output: 'Blocked: plan mode is read-only. Finish investigating and present your plan instead.' };
+    }
+    if (tool && NEEDS_PERMISSION[mode]?.has(tool.kind) && !alwaysAllowed.has(call.name)) {
+      onEvent({ type: 'permission', call });
+      const answer = await askPermission(call);
+      if (signal?.aborted) return null;
+      if (answer === 'always') alwaysAllowed.add(call.name);
+      if (answer === 'deny') return { ok: false, output: 'The user denied this action. Ask what they would like instead, or try a different approach.', denied: true };
+    }
+    const result = await executeTool(call, {
+      workspace,
+      onChange: callbacks.onChange,
+      onTodos: callbacks.onTodos,
+      onRemember: normalizeProfile(profile).learn ? callbacks.onRemember : undefined,
+      onCommand: callbacks.onCommand,
+      onCommandData: callbacks.onCommandData,
+    });
+    if (result.ok && (call.name === 'write_file' || call.name === 'edit_file')) wroteFiles = true;
+    return result;
+  };
   let lastSig = '';
   let repeats = 0;
   let incomplete = 0;
@@ -201,8 +230,41 @@ export async function runAgent({
         onEvent({ type: 'error', error: 'The model returned an empty response. Try again or pick a bigger model.' });
         return { messages, status: 'error' };
       }
+      const wantsCode = asksForCode(lastUserText());
+
+      // Small models sometimes claim they "can't create files". Remind them once that Buddo saves files.
+      if (autoSaveCode && !wroteFiles && !nudged && wantsCode && mode !== 'plan' && isRefusal(text) && !/```/.test(text)) {
+        nudged = true;
+        messages.push({ role: 'assistant', content: text });
+        messages.push({
+          role: 'user',
+          content: 'You CAN do this — Buddo saves files for you automatically. Write the complete code now: put each file name on its own line, then the full code in a fenced code block.',
+        });
+        onEvent({ type: 'nudge', text: 'Reminded the model that it can write files' });
+        continue;
+      }
+
       messages.push({ role: 'assistant', content: text || a.thinking.trim() });
       if (!text && a.thinking) onEvent({ type: 'text', delta: a.thinking.trim() });
+
+      // The model answered with plain code blocks instead of tool calls → save them as files.
+      if (autoSaveCode && !wroteFiles && mode !== 'plan' && workspace.write) {
+        const files = extractCodeFiles(text).filter((f) => wantsCode || !f.inferred);
+        const saved = [];
+        for (const f of files.slice(0, 12)) {
+          const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true };
+          onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+          const result = await perform(call, TOOL_MAP.write_file);
+          if (!result) {
+            onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
+            onEvent({ type: 'stopped' });
+            return { messages, status: 'stopped' };
+          }
+          if (result.ok) saved.push(f.path + (f.truncated ? ' (may be cut off)' : ''));
+          onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
+        }
+        if (saved.length) messages[messages.length - 1].content += `\n\n[Buddo saved these code blocks as files: ${saved.join(', ')}]`;
+      }
       onEvent({ type: 'done' });
       return { messages, status: 'done' };
     }
@@ -232,32 +294,11 @@ export async function runAgent({
     repeats = sig === lastSig ? repeats + 1 : 0;
     lastSig = sig;
 
-    let result;
-    if (tool && mode === 'plan' && (tool.kind === 'write' || tool.kind === 'exec')) {
-      result = { ok: false, output: 'Blocked: plan mode is read-only. Finish investigating and present your plan instead.' };
-    } else if (tool && NEEDS_PERMISSION[mode]?.has(tool.kind) && !alwaysAllowed.has(call.name)) {
-      onEvent({ type: 'permission', call });
-      const answer = await askPermission(call);
-      if (signal?.aborted) {
-        onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
-        onEvent({ type: 'stopped' });
-        return { messages, status: 'stopped' };
-      }
-      if (answer === 'always') alwaysAllowed.add(call.name);
-      if (answer === 'deny') {
-        result = { ok: false, output: 'The user denied this action. Ask what they would like instead, or try a different approach.', denied: true };
-      }
-    }
-
+    const result = await perform(call, tool);
     if (!result) {
-      result = await executeTool(call, {
-        workspace,
-        onChange: callbacks.onChange,
-        onTodos: callbacks.onTodos,
-        onRemember: normalizeProfile(profile).learn ? callbacks.onRemember : undefined,
-        onCommand: callbacks.onCommand,
-        onCommandData: callbacks.onCommandData,
-      });
+      onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
+      onEvent({ type: 'stopped' });
+      return { messages, status: 'stopped' };
     }
 
     let output = result.output;

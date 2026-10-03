@@ -1,6 +1,6 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -132,6 +132,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     }
   };
   const last = () => draft.parts[draft.parts.length - 1];
+  let shownPreview = false;
   const toolPart = (id) => draft.parts.find((p) => p.type === 'tool' && p.call.id === id);
 
   let context;
@@ -182,8 +183,16 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           const p = toolPart(e.id);
           if (p) Object.assign(p, { status: e.denied ? 'denied' : e.ok ? 'done' : 'error', output: e.output, display: e.display, endedAt: Date.now(), preview: undefined });
           if (p?.kind === 'write') refreshFileIndex();
+          if (p?.kind === 'write' && e.ok && !shownPreview && /\.html?$/i.test(p.call.args?.path || '')) {
+            shownPreview = true;
+            if (isMobile()) S().toast(`Saved ${p.call.args.path} — open the panel to preview it`, 'success');
+            else S().openPanel('preview');
+          }
           break;
         }
+        case 'nudge':
+          draft.parts.push({ type: 'note', text: e.text });
+          break;
         case 'usage':
           draft.usage = { prompt: e.prompt, completion: e.completion, tps: e.tps };
           break;

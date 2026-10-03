@@ -6,6 +6,7 @@ import path from 'node:path';
 import { runAgent, extractCodeFiles, executeTool } from '../src/index.js';
 import { removalKind, keepOnlyRemovals, deleteListedLines, isMinusList } from '../src/edits.js';
 import { linkAssets } from '../src/codeblocks.js';
+import { askedColors, colorsUsed } from '../src/colors.js';
 import { createNodeWorkspace } from '../src/node-workspace.js';
 
 // The page a tiny model made for "make a green button" (seen in a screen recording): far more than a button.
@@ -272,4 +273,40 @@ test('the example page copied every time ends in "Nothing was changed"; asking f
   const ok = [copy];
   ok.prompt = 'make a page that says hello';
   assert.match(await (await chat(ok)).read('index.html'), /<h1>Hello<\/h1>/);
+});
+
+test('colors: what was asked for, and what the code really sets', () => {
+  assert.deepEqual(askedColors('add a green button'), ['green']);
+  assert.deepEqual(askedColors('a button that says green'), [], 'text it should say is not a color to set');
+  assert.deepEqual(askedColors('make the title "Blue Sky" red'), ['red']);
+  const used = (c, l = 'html') => [...colorsUsed(c, l)].sort();
+  assert.deepEqual(used('<button>Green Button</button>'), []);
+  assert.deepEqual(used('<style>.green-btn { padding: 4px; }</style><button class="green-btn">Green</button>'), [], 'a class name is not a color');
+  assert.deepEqual(used('<style>.b { background-color: #4CAF50; color: white; }</style>'), ['green', 'white']);
+  assert.deepEqual(used('<button style="background: green">Go</button>'), ['green']);
+  assert.deepEqual(used('.x { background: rgb(40,167,69) }', 'css'), ['green']);
+  assert.deepEqual(used('.x { background: hsl(210, 80%, 50%); white-space: nowrap }', 'css'), ['blue']);
+  assert.deepEqual(used('.x { background: darkgreen }', 'css'), ['green']);
+  assert.deepEqual(used('<script>btn.style.backgroundColor = "green"</script>'), ['green']);
+  assert.deepEqual(used('<button class="bg-green-500 text-white">x</button>'), ['green', 'white']);
+});
+
+test('"add a green button" answered with a plain button that says Green: asked again, the green one is saved', async () => {
+  const plain = '```html\n<!DOCTYPE html>\n<html>\n<body>\n<button>Green Button</button>\n</body>\n</html>\n```';
+  const green = '```html\n<!DOCTYPE html>\n<html>\n<body>\n<button style="background-color: green; color: white;">Click me</button>\n</body>\n</html>\n```';
+  const turns = [plain, green];
+  turns.prompt = 'add a green button';
+  const r = await chat(turns);
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[1].at(-1).content, /^Nothing in your code is green/);
+  assert.match(await r.read('index.html'), /background-color: green/);
+});
+
+test('a model that never sets the color: its code is still saved, with a heads-up', async () => {
+  const turns = ['```html\n<!DOCTYPE html>\n<html>\n<body>\n<button>Green Button</button>\n</body>\n</html>\n```'];
+  turns.prompt = 'add a green button';
+  const r = await chat(turns);
+  assert.equal(r.res.status, 'done');
+  assert.ok(r.events.some((e) => e.type === 'nudge' && /Heads up: nothing in the saved code is green/.test(e.text)));
+  assert.match(await r.read('index.html'), /Green Button/);
 });

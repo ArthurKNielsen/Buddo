@@ -6,6 +6,7 @@ import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
+import { missingColors } from './colors.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml, linkAssets } from './codeblocks.js';
 import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders } from './edits.js';
 
@@ -520,6 +521,20 @@ export async function runAgent({
           onEvent({ type: 'nudge', text: 'The model copied the example page instead of doing what you asked — asked it again' });
           continue;
         }
+        // Asked for a color ("a green button") but the code never sets it: it only wrote the word on the button.
+        const visual = files.filter((f) => /^(html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte)$/.test(f.lang));
+        const noColor = visual.length && !removal() ? missingColors(askedText(), visual) : [];
+        if (noColor.length && nudges < MAX_NUDGES) {
+          nudges++;
+          const c = noColor.join(' and ');
+          const shown = edit ? editFiles.filter((f) => f.content.length < 9000) : [];
+          messages.push({
+            role: 'user',
+            content: `Nothing in your code is ${c}: writing the word "${noColor[0]}" doesn't color anything. The request was "${askedText()}". Set the color in the CSS, for example background-color: ${noColor[0]};${shown.length ? `\n\n${showFiles(shown)}\n${askChange(shown.map((f) => f.path))}` : ' Write the code again: the file name on its own line, then the complete code in a fenced code block.'}`,
+          });
+          onEvent({ type: 'nudge', text: `Nothing in the model's code was ${c} — asked it to actually set the color` });
+          continue;
+        }
         // A new page with its own CSS/JS: make sure the page loads them.
         if (!edit) files = linkAssets(files);
         const { writes, needFull, unchanged = [] } = await planCodeSave(files, {
@@ -619,6 +634,7 @@ export async function runAgent({
           onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
         }
         if (saved.length) messages[messages.length - 1].content += `\n\n[Buddo saved these code blocks as files: ${saved.join(', ')}]`;
+        if (saved.length && noColor.length) onEvent({ type: 'nudge', text: `Heads up: nothing in the saved code is ${noColor.join(' or ')} — the model may only have written the word. Try a bigger model, or ask again.` });
         // Asked for a change, nothing landed: never let "Done! I removed it" stand.
         if (!saved.length && !declined && wantsCode && (files.length || (CLAIMS_DONE.test(text) && (removal() || looksLikeEdit(askedText()))))) {
           const why = unchanged.length

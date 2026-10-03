@@ -10,4 +10,4 @@ export { globToRegExp, matchGlob, searchFiles, formatTree, htmlToText, IGNORED_D
 export { SLASH_COMMANDS, parseSlash, COMPACT_PROMPT } from './commands.js';
 export { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
 export { looksGarbled } from './garble.js';
-export { planCodeSave, mergeCss, mergeCssIntoHtml, looksLikeEdit, isNewBuild, sniffLang, isFullHtml } from './edits.js';
+export { planCodeSave, mergeCss, mergeCssIntoHtml, looksLikeEdit, isNewBuild, sniffLang, isFullHtml, parseFindReplace } from './edits.js';

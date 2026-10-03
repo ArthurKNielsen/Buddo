@@ -133,3 +133,47 @@ export async function planCodeSave(files, { target, edit = false, read = async (
   }
   return { writes, needFull };
 }
+
+// ── Find/replace edits ──
+// Rewriting a whole file to change one line is the slowest thing a tiny model can do (on a CPU, every token
+// counts). So small models may answer with just the change:
+//   index.html
+//   <<<<<<< SEARCH
+//   background: white;
+//   =======
+//   background: blue;
+//   >>>>>>> REPLACE
+const FR_START = /^\s*<{5,9}\s*(?:SEARCH|FIND|ORIGINAL)?\s*$/i;
+const FR_SPLIT = /^\s*={5,9}\s*$/;
+const FR_END = /^\s*>{5,9}\s*(?:REPLACE|UPDATED)?\s*$/i;
+const FR_FILE = /((?:[\w-]+\/)*[\w.-]+\.(?:html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte|py|rb|go|rs|java|kt|swift|c|h|cpp|cs|php|lua|dart|json|ya?ml|toml|sql|md|xml|svg|txt|sh))\b/i;
+
+/** Find/replace blocks in a reply: [{ path (or null), find, replace }]. */
+export function parseFindReplace(text = '') {
+  const lines = text.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!FR_START.test(lines[i])) continue;
+    // The file name: the closest line above that names a file (skipping blank lines and ``` fences).
+    let path = null;
+    for (let k = i - 1, seen = 0; k >= 0 && seen < 3; k--) {
+      const l = lines[k].trim();
+      if (!l || /^(`{3,}|~{3,})[\w+#.-]*$/.test(l)) continue;
+      seen++;
+      if (FR_END.test(l)) break;
+      path = FR_FILE.exec(l)?.[1] || null;
+      if (path) break;
+    }
+    const find = [];
+    const replace = [];
+    let j = i + 1;
+    for (; j < lines.length && !FR_SPLIT.test(lines[j]); j++) find.push(lines[j]);
+    if (j >= lines.length) break; // no ======= : not an edit
+    for (j++; j < lines.length && !FR_END.test(lines[j]) && !FR_START.test(lines[j]); j++) replace.push(lines[j]);
+    // Tiny models sometimes forget >>>>>>> REPLACE at the very end: drop a trailing code fence instead.
+    if (j >= lines.length) while (replace.length && /^\s*(`{3,}|~{3,})\s*$|^\s*$/.test(replace[replace.length - 1])) replace.pop();
+    out.push({ path: path?.replace(/^\.?\//, '') || null, find: find.join('\n'), replace: replace.join('\n') });
+    i = FR_START.test(lines[j] || '') ? j - 1 : j;
+  }
+  return out;
+}

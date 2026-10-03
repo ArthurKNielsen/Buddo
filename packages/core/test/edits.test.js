@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { mergeCss, mergeCssIntoHtml, planCodeSave, looksLikeEdit, isNewBuild, sniffLang, extractCodeFiles, asksForCode, runAgent } from '../src/index.js';
+import { mergeCss, mergeCssIntoHtml, planCodeSave, looksLikeEdit, isNewBuild, sniffLang, extractCodeFiles, asksForCode, runAgent, parseFindReplace } from '../src/index.js';
 import { createNodeWorkspace } from '../src/node-workspace.js';
 
 const PAGE = `<!DOCTYPE html>
@@ -130,4 +130,36 @@ test('new-thing requests are not treated as edits', () => {
   assert.ok(isNewBuild('I want a calculator website'));
   assert.ok(isNewBuild('give me a todo app'));
   assert.ok(!isNewBuild('Make the button blue'));
+});
+
+test('parseFindReplace: file name, fences, several blocks, missing end marker', () => {
+  const one = parseFindReplace('Here you go:\n\nindex.html\n```html\n<<<<<<< SEARCH\n  background: white;\n=======\n  background: blue;\n>>>>>>> REPLACE\n```');
+  assert.deepEqual(one, [{ path: 'index.html', find: '  background: white;', replace: '  background: blue;' }]);
+  const two = parseFindReplace('**style.css**\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n\n<<<<<<< SEARCH\nc\n=======\nd\n>>>>>>> REPLACE');
+  assert.deepEqual(two.map((c) => [c.path, c.find, c.replace]), [['style.css', 'a', 'b'], [null, 'c', 'd']]);
+  const cut = parseFindReplace('<<<<<<< SEARCH\nx\n=======\ny\n```\n');
+  assert.deepEqual(cut, [{ path: null, find: 'x', replace: 'y' }]);
+  assert.deepEqual(parseFindReplace('a merge conflict?\n<<<<<<< HEAD\nno split'), []);
+});
+
+test('edit request: a find/replace reply changes only that line', async () => {
+  const turns = ['index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: blue;\n>>>>>>> REPLACE'];
+  turns.prompt = 'Make the button blue';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[0].at(-1).content, /<<<<<<< SEARCH/, 'asked for just the change');
+  assert.match(r.seen[0][0].content, /<<<<<<< SEARCH/, 'lite prompt teaches the format');
+  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'blue'));
+  assert.equal(r.seen.length, 1, 'one model call');
+});
+
+test('edit request: a find/replace that does not match is retried, then the whole file is asked for', async () => {
+  const fixed = PAGE.replace('#4CAF50', 'blue');
+  const turns = ['<<<<<<< SEARCH\ncolor: green;\n=======\ncolor: blue;\n>>>>>>> REPLACE', '<<<<<<< SEARCH\nnope\n=======\nstill nope\n>>>>>>> REPLACE', `\`\`\`html\n${fixed}\`\`\``];
+  turns.prompt = 'Make the button blue';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[1].at(-1).content, /didn't apply[\s\S]*\[Current index\.html\]/);
+  assert.match(r.seen[2].at(-1).content, /COMPLETE updated index\.html/);
+  assert.equal(await r.read('index.html'), fixed);
 });

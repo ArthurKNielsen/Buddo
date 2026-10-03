@@ -7,7 +7,7 @@ import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
-import { planCodeSave, looksLikeEdit, isNewBuild } from './edits.js';
+import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace } from './edits.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -153,7 +153,7 @@ export async function runAgent({
     if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
       const t = await readTarget();
       if (t && t.content.length < 7000) {
-        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\nReply with the COMPLETE updated ${t.path} in one code block.`;
+        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\nReply with only the change: ${t.path} on its own line, then a <<<<<<< SEARCH / ======= / >>>>>>> REPLACE block. Don't rewrite the whole file.`;
         onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
       }
     }
@@ -299,7 +299,7 @@ export async function runAgent({
       }
       const wantsCode = asksForCode(askedText());
       const canSave = autoSaveCode && !wroteFiles && mode !== 'plan' && !!workspace.write;
-      const hasCode = /```|~~~/.test(fenceRawHtml(text));
+      const hasCode = /```|~~~/.test(fenceRawHtml(text)) || parseFindReplace(text).length > 0;
 
       // Small models sometimes claim they "can't create files". Remind them that Buddo saves files.
       if (canSave && nudges < MAX_NUDGES && wantsCode && isRefusal(text) && !hasCode) {
@@ -331,6 +331,54 @@ export async function runAgent({
 
       messages.push({ role: 'assistant', content: text || a.thinking.trim() });
       if (!text && a.thinking) onEvent({ type: 'text', delta: a.thinking.trim() });
+
+      // The model answered with find/replace blocks → apply each one with edit_file.
+      const changes = canSave ? parseFindReplace(text) : [];
+      if (changes.length) {
+        const target = await readTarget();
+        const saved = [];
+        const failed = [];
+        for (const c of changes.slice(0, 12)) {
+          const path = c.path || target?.path;
+          if (!path) {
+            failed.push('An edit had no file name. Write the file name on the line above <<<<<<< SEARCH.');
+            continue;
+          }
+          const exists = (await workspace.read(path).catch(() => null)) !== null;
+          // An empty SEARCH for a file that doesn't exist yet means "create it".
+          const call = !c.find.trim() && !exists
+            ? { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path, content: c.replace.replace(/\s*$/, '\n') }, auto: true }
+            : { id: `t${Date.now().toString(36)}${id++}`, name: 'edit_file', args: { path, old: c.find, new: c.replace }, auto: true };
+          onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+          const result = c.find.trim() || !exists ? await perform(call, TOOL_MAP[call.name]) : { ok: false, output: `The SEARCH part for ${path} was empty. Copy the lines to change from the file.` };
+          if (!result) {
+            onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
+            onEvent({ type: 'stopped' });
+            return { messages, status: 'stopped' };
+          }
+          onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
+          if (result.ok) saved.push(`${path} (edited)`);
+          else if (!result.denied) failed.push(result.output);
+        }
+        if (saved.length) messages[messages.length - 1].content += `\n\n[Buddo saved these code blocks as files: ${saved.join(', ')}]`;
+        // Nothing applied: show the file again and ask once for exact SEARCH lines, then for the whole file.
+        const now = target && (await workspace.read(target.path).catch(() => null));
+        if (!saved.length && failed.length && now !== null && target && nudges < MAX_NUDGES) {
+          nudges++;
+          messages.push({
+            role: 'user',
+            content:
+              nudges === 1
+                ? `That edit didn't apply: ${failed[0]}\nThe SEARCH lines must be copied exactly from the file. Try again.\n\n[Current ${target.path}]\n${fence(target.path, now)}`
+                : `Please write the COMPLETE updated ${target.path} (the whole file) in one code block.\n\n[Current ${target.path}]\n${fence(target.path, now)}`,
+          });
+          onEvent({ type: 'nudge', text: nudges === 1 ? `The model's edit didn't match ${target.path} — asked it to try again` : `Asked the model for the whole ${target.path}` });
+          continue;
+        }
+        if (failed.length) onEvent({ type: 'error', error: failed[0] });
+        onEvent({ type: 'done' });
+        return { messages, status: saved.length ? 'done' : 'error' };
+      }
 
       // The model answered with plain code blocks instead of tool calls → save them as files.
       if (canSave) {

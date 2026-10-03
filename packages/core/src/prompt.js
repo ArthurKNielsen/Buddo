@@ -39,7 +39,16 @@ index.html
 <html><body><h1>Hello</h1></body></html>
 \`\`\`
 
-Use one block per file (for example index.html, styles.css, script.js). Always write the whole file, never "..." placeholders.`}
+Use one block per file (for example index.html, styles.css, script.js). Always write the whole file, never "..." placeholders.
+
+To CHANGE a file that already exists, don't rewrite it. Write only the change (copy the SEARCH lines exactly from the file):
+
+index.html
+<<<<<<< SEARCH
+<h1>Hello</h1>
+=======
+<h1>Hi there</h1>
+>>>>>>> REPLACE`}
 
 Optional tools (write ONE, then stop and wait for the result):
 <tool:read_file>

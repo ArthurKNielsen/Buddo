@@ -163,3 +163,24 @@ test('edit request: a find/replace that does not match is retried, then the whol
   assert.match(r.seen[2].at(-1).content, /COMPLETE updated index\.html/);
   assert.equal(await r.read('index.html'), fixed);
 });
+
+test('edit request: markers copied without code (seen on a Chromebook) → shown an example, then the edit applies', async () => {
+  const turns = ['<<<<<<< SEARCH / ======= / >>>>>>> REPLACE', 'index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: green;\n>>>>>>> REPLACE'];
+  turns.prompt = 'Make the button green';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[0].at(-1).content, /index\.html\n<<<<<<< SEARCH\n<p>Old text<\/p>\n=======\n/, 'markers spelled out line by line');
+  assert.match(r.seen[1].at(-1).content, /had no code in it[\s\S]*<<<<<<< SEARCH\n/);
+  assert.ok(r.events.some((e) => e.type === 'nudge' && /markers but no code/.test(e.text)));
+  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'green'));
+  assert.equal(r.seen.length, 2);
+});
+
+test('edit request: a copied example is never applied', async () => {
+  const page = PAGE.replace('<h1>Button Example</h1>', '<p>Old text</p>');
+  const turns = ['index.html\n<<<<<<< SEARCH\n<p>Old text</p>\n=======\n<p>New text</p>\n>>>>>>> REPLACE', 'index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: green;\n>>>>>>> REPLACE'];
+  turns.prompt = 'Make the button green';
+  const r = await chat(turns, { files: { 'index.html': page } });
+  assert.match(r.seen[1].at(-1).content, /That was the example/);
+  assert.equal(await r.read('index.html'), page.replace('#4CAF50', 'green'), 'only the real edit landed');
+});

@@ -222,7 +222,11 @@ export default function ToolCard({ part }) {
         </span>
         <span className="tool-label">{label}</span>
         <span className="tool-desc truncate mono">{describeCall(call)}</span>
-        {call.auto && <span className="tool-tag" title="The model wrote a code block; Buddo saved it as a file">from code block</span>}
+        {call.auto && (
+          <span className="tool-tag" title={call.merged ? 'The model sent only the changed CSS; Buddo merged it into the file' : 'The model wrote a code block; Buddo saved it as a file'}>
+            {call.merged ? 'change merged in' : 'from code block'}
+          </span>
+        )}
         <span className="spacer" />
         {d?.type === 'diff' && <Stats before={d.before} after={d.after} />}
         {sum && d?.type !== 'diff' && <span className={`tool-sum ${part.status === 'error' ? 'err' : ''}`}>{sum}</span>}

@@ -86,7 +86,7 @@ test('a refusal gets one nudge, then the code is saved', async () => {
   assert.match(r.seen[1].at(-1), /You CAN do this/);
   assert.match(await r.exists('index.html'), /<h1>Hi<\/h1>/);
   const twice = await run(["I can't write files.", "I can't write files."]);
-  assert.equal(twice.calls, 2, 'nudges only once');
+  assert.equal(twice.calls, 3, 'nudges at most twice');
   assert.equal(twice.res.status, 'done');
 });
 

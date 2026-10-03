@@ -1,9 +1,10 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision } from './engine.js';
+import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision, recheckGpu, usesCpu } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
+let garbleRetried = false;
 
 const MEDIA_EXT = /\.(mp4|mov|webm|mkv|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus|png|jpe?g|gif|webp|bmp|heic|avif)$/i;
 
@@ -206,6 +207,8 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           const p = toolPart(e.id);
           if (p) Object.assign(p, { status: e.denied ? 'denied' : e.ok ? 'done' : 'error', output: e.output, display: e.display, endedAt: Date.now(), preview: undefined });
           if (p?.kind === 'write') refreshFileIndex();
+          // The Preview follows the page Buddo just saved.
+          if (p?.kind === 'write' && e.ok && /\.html?$/i.test(p.call.args?.path || '')) useStore.setState({ previewPath: p.call.args.path.replace(/^\.?\//, '') });
           if (p?.kind === 'write' && e.ok && !shownPreview && /\.html?$/i.test(p.call.args?.path || '')) {
             shownPreview = true;
             if (isMobile()) S().toast(`Saved ${p.call.args.path} — open the panel to preview it`, 'success');
@@ -291,17 +294,27 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   useStore.setState({ running: null, permission: null });
   if (result.status === 'done' && !hidden) autoLearn(sid, { lite, settings });
   if (result.status === 'error' && /fetch|reach|ECONNREFUSED|Failed/i.test(draft.error || '')) checkEngine();
-  // Gibberish from the in-browser engine = broken GPU math. Try the safe f32 build, then the CPU, and retry.
+  // Gibberish from the in-browser engine usually means broken GPU math: safe f32 build first, then a GPU re-check
+  // (if the GPU fails it, run on the CPU). Retry once; a second gibberish reply in a row is shown as an error.
   if (result.status === 'error' && /^GARBLED/.test(draft.error || '') && settings.engine === 'webllm' && !hidden) {
-    if ((await webllmPrecision(settings)) === 'f16') {
-      S().setSettings({ webllmPrecision: 'f32' });
-      S().toast('Your GPU garbled the fast version of this model — switching to the safe (f32) version and trying again', 'info');
+    if (garbleRetried) {
+      garbleRetried = false;
+      draft.error = 'The model wrote gibberish again. Try Settings → Engine → Run in-browser models on: CPU, or pick a different model.';
+      flush();
     } else {
-      S().setSettings({ gpuBroken: true });
-      S().toast("Your GPU garbles this model even in safe mode — switching to CPU mode (slower, but it works) and trying again", 'info');
+      garbleRetried = true;
+      if (!usesCpu(settings) && (await webllmPrecision(settings)) === 'f16') {
+        S().setSettings({ webllmPrecision: 'f32' });
+        S().toast('Your GPU garbled the fast version of this model — switching to the safe (f32) version and trying again', 'info');
+      } else if (!usesCpu(settings) && !(await recheckGpu())) {
+        S().setSettings({ gpuBroken: true });
+        S().toast("Your GPU fails the check now — switching to CPU mode (slower, but it works) and trying again", 'info');
+      } else {
+        S().toast('The model glitched — trying again', 'info');
+      }
+      retryLast();
     }
-    retryLast();
-  }
+  } else if (result.status === 'done') garbleRetried = false;
 }
 
 async function previewChange(call, ws) {

@@ -11,5 +11,9 @@ export function looksGarbled(text = '', prompt = '') {
   if (t.length < 60) return false;
   if ((t.match(/�/g) || []).length >= 3) return true;
   if (HAS_CJK.test(prompt)) return false;
-  return (t.match(GLUED) || []).length >= 3;
+  if ((t.match(GLUED) || []).length >= 3) return true;
+  // A few Asian characters scattered through an English reply (a real Chinese answer is mostly Chinese).
+  const cjk = (t.match(new RegExp(`[${CJK}]`, 'g')) || []).length;
+  const latin = (t.match(/[a-z]/gi) || []).length;
+  return cjk >= 3 && latin >= 30 && cjk / (cjk + latin) < 0.25;
 }

@@ -124,6 +124,7 @@ export const useStore = create(
       },
       toasts: [],
       fileIndex: [],
+      previewPath: null, // the HTML page the Preview shows (the one Buddo saved last)
       composerInsert: null,
       vision: false,
 

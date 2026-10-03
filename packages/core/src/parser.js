@@ -83,12 +83,31 @@ export function parsePartial(name, body) {
   return { args, writing };
 }
 
+// Llama 3.x's native tool format: a reply that is just {"name": "write_file", "parameters": {...}} (maybe fenced as json).
+const BARE_JSON = /^\s*(?:<\|python_tag\|>)?\s*(?:```(?:json)?\s*)?(\{[\s\S]*\})\s*(?:```)?\s*$/;
+function findBareJsonCall(text) {
+  const m = BARE_JSON.exec(text);
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[1]);
+    const name = j.name || j.function?.name;
+    if (!TOOL_MAP[name]) return null;
+    const raw = j.parameters ?? j.arguments ?? j.function?.arguments ?? {};
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const args = {};
+    for (const [k, v] of Object.entries(obj)) args[k] = typeof v === 'string' ? v : JSON.stringify(v);
+    return { name, complete: true, start: text.indexOf(m[1]) - (text.slice(0, text.indexOf(m[1])).match(/```(?:json)?\s*$/)?.[0].length || 0), end: text.length, args };
+  } catch {
+    return null;
+  }
+}
+
 /** Find the first tool call in `text`. */
 export function findToolCall(text) {
   const m = findOpen(text);
   const json = findJsonToolCall(text);
   if (json && (!m || json.start < m.index)) return json;
-  if (!m) return null;
+  if (!m) return findBareJsonCall(text);
   const name = m.name;
   const close = `</${m.prefix}${name}>`;
   const bodyStart = m.index + m.length;
@@ -152,6 +171,8 @@ export function analyze(raw) {
     if (lt !== -1 && /^<[a-z_:]{0,40}$/i.test(safe.slice(lt))) safe = safe.slice(0, lt);
     // Hold back a trailing fence that may be opening a tool block.
     safe = safe.replace(/```[\w-]*\s*$/, '');
+    // A reply that starts like a JSON tool call ({"name": …) is held back until we know what it is.
+    if (/^\s*(?:<\|python_tag\|>)?\s*(?:```(?:json)?\s*)?\{\s*("|$)/.test(visible) && !/\n\s*\n/.test(visible.trim())) safe = '';
   }
   return { thinking, prose, safe, call };
 }

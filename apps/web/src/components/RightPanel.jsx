@@ -384,6 +384,7 @@ function TasksTab() {
 function PreviewTab() {
   const ws = useStore((s) => s.ws);
   const fileIndex = useStore((s) => s.fileIndex);
+  const previewPath = useStore((s) => s.previewPath);
   const [html, setHtml] = useState(undefined);
   const [key, setKey] = useState(0);
   // While Buddo is writing an HTML/CSS/JS file, render its half-written content live.
@@ -394,10 +395,11 @@ function PreviewTab() {
     return l?.name === 'write_file' && /\.(html?|css|js)$/i.test(l.args?.path || '') && l.args.content ? l : null;
   });
   const liveKey = live ? `${live.args.path}:${Math.floor(live.args.content.length / 120)}` : '';
-  const load = async () => setHtml(await buildPreview(getWorkspace(), undefined, live ? { [live.args.path]: live.args.content } : {}).catch(() => null));
+  const entry = live && /\.html?$/i.test(live.args.path) ? live.args.path.replace(/^\.?\//, '') : previewPath;
+  const load = async () => setHtml(await buildPreview(getWorkspace(), entry, live ? { [live.args.path]: live.args.content } : {}).catch(() => null));
   useEffect(() => {
     load();
-  }, [ws?.root, fileIndex, liveKey]);
+  }, [ws?.root, fileIndex, liveKey, entry]);
   return (
     <div className="tab-pane">
       <div className="pane-bar">
@@ -407,7 +409,7 @@ function PreviewTab() {
               <span className="live-dot">LIVE</span> building {live.args.path}…
             </span>
           ) : (
-            'Live preview of index.html'
+            `Live preview of ${entry || 'index.html'}`
           )}
         </span>
         <span className="spacer" />

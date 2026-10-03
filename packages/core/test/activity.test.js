@@ -84,3 +84,9 @@ test('an empty reply is retried once (fresh), then explained', async () => {
   assert.match(full.events.find((e) => e.type === 'error').error, /ran out of room/);
   assert.equal(full.seen.length, 1, 'no pointless retry when the context is full');
 });
+
+test('scattered CJK in an English reply is garbled', async () => {
+  const { looksGarbled } = await import('../src/index.js');
+  assert.ok(looksGarbled('Here is the 代码 for your page. I made the button 蓝色 and moved it under the 标题 so it looks nice.', 'make the button blue'));
+  assert.ok(!looksGarbled('Here is the code for your page. I made the button blue and moved it under the title so it looks nice.', 'make the button blue'));
+});

@@ -1,3 +1,5 @@
+import { sniffLang } from './edits.js';
+
 // Small models often answer with plain markdown code blocks instead of tool calls.
 // This turns those blocks into files: it finds (or infers) a filename for each block.
 
@@ -95,7 +97,7 @@ export function extractCodeFiles(text, { wantsCode = false } = {}) {
       if (fromLine) path = fromLine;
     }
     if (!path && before) path = FILE_RE.exec(` ${before} `)?.[1] || null;
-    const lang = EXT[langWord] || (path ? path.split('.').pop().toLowerCase() : '');
+    const lang = EXT[langWord] || (path ? path.split('.').pop().toLowerCase() : '') || (EXT[langWord] === undefined ? EXT[sniffLang(code)] || '' : '');
     // "You can save this script in a file named hello.py" — a name right after the block counts
     // when its extension matches the block's language (so it isn't the next block's file).
     if (!path && lang) {
@@ -154,8 +156,10 @@ export function extractCodeFiles(text, { wantsCode = false } = {}) {
   return keep.map(({ info, ...f }) => ({ ...f, path: f.path.replace(/^\.?\//, '') }));
 }
 
-const BUILD_VERBS = /\b(build|make|create|write|code|generate|add|fix|change|update|edit|improve|redo|rewrite|style|design|implement|program|develop|put|turn|convert|refactor|clone|copy|recreate)\b/i;
-export const asksForCode = (text = '') => BUILD_VERBS.test(text);
+const BUILD_VERBS = /\b(build|make|create|write|code|generate|add|fix|change|update|edit|improve|redo|rewrite|style|design|implement|program|develop|put|turn|convert|refactor|clone|copy|recreate|move|remove|delete|replace|give|want|need)\b/i;
+const CODE_NOUNS = /\b(website|web ?page|page|site|app|game|script|program|html|css|javascript|python|button|calculator|form|landing|todo|to-do|counter|timer|stopwatch|clock|quiz|portfolio)\b/i;
+const QUESTION = /^\s*(what|why|how|explain|when|where|who|which|does|is|are)\b/i;
+export const asksForCode = (text = '') => BUILD_VERBS.test(text) || (CODE_NOUNS.test(text) && !QUESTION.test(text));
 
 const APOS = "(?:'|’)?";
 const REFUSALS = [

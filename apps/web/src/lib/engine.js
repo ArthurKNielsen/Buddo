@@ -98,7 +98,7 @@ export function usesCpu(settings = useStore.getState().settings) {
 }
 
 // Models that already passed the GPU check on this device (so the check runs once per model build).
-const VERIFIED_KEY = 'buddo-gpu-verified';
+const VERIFIED_KEY = 'buddo-gpu-verified-2'; // -2: the check now includes a long prompt
 const verified = () => {
   try {
     return JSON.parse(localStorage.getItem(VERIFIED_KEY) || '[]');
@@ -112,16 +112,43 @@ const markVerified = (id) => {
   } catch {}
 };
 
-/** Ask the loaded model two trivial questions. Broken GPU math can't answer them. */
+const CJK = /[぀-ヿ㐀-鿿가-힯]/;
+/** A reply a working model could give: real words, no glitch characters. */
+const looksSane = (t = '', prompt = '') => {
+  const s = t.trim();
+  return /[a-z]{3,}|\b4\b/i.test(s) && !looksGarbled(s.padEnd(60, ' '), prompt) && !(CJK.test(s) && !CJK.test(prompt));
+};
+// About 1,500 tokens: broken GPU math often only shows up once the prompt gets long (like a real chat).
+const LONG_CONTEXT = `You are checking a web page. The secret word is BANANA.\n\n${Array.from({ length: 14 }, (_, i) =>
+  `<section id="part-${i}">\n  <h2>Part ${i}</h2>\n  <p>This section explains step ${i} of building a small website with HTML, CSS and JavaScript.</p>\n  <button class="btn" onclick="count(${i})">Click ${i}</button>\n</section>`,
+).join('\n')}`;
+
+/** Ask the loaded model easy questions, with a short and a long prompt. Broken GPU math can't answer them. */
 async function gpuGivesSaneAnswers(engine) {
-  const ask = async (q) => {
-    const r = await engine.chat.completions.create({ messages: [{ role: 'user', content: q }], temperature: 0, max_tokens: 48 });
+  const ask = async (messages, max = 48) => {
+    const r = await engine.chat.completions.create({ messages, temperature: 0, max_tokens: max });
     await engine.resetChat?.().catch?.(() => {});
     return r.choices?.[0]?.message?.content || '';
   };
-  if (/\b4\b|\bfour\b/i.test(await ask('What is 2+2? Reply with just the number.'))) return true;
-  const hi = await ask('Say hello.');
-  return /\b(hello|hi|hey)\b/i.test(hi) && !looksGarbled(hi, 'Say hello.');
+  const short = await ask([{ role: 'user', content: 'What is 2+2? Reply with just the number.' }]);
+  if (!/\b4\b|\bfour\b/i.test(short) && !looksSane(await ask([{ role: 'user', content: 'Say hello.' }]), 'Say hello.')) return false;
+  useStore.setState({ webllm: { text: 'Checking your GPU with a longer message…', progress: 0 } });
+  const q = 'What is the secret word mentioned at the top? Answer in one short sentence.';
+  const long = await ask([{ role: 'system', content: LONG_CONTEXT }, { role: 'user', content: q }], 40);
+  return /banana/i.test(long) || looksSane(long, q);
+}
+
+/** After gibberish from a model that passed before: check the GPU again. Returns false if it's broken. */
+export async function recheckGpu() {
+  if (!webllmEngine || !webllmLoaded) return true;
+  try {
+    localStorage.setItem(VERIFIED_KEY, JSON.stringify(verified().filter((x) => x !== webllmLoaded)));
+  } catch {}
+  useStore.setState({ webllm: { text: 'Checking your GPU again…', progress: 0 } });
+  const ok = await gpuGivesSaneAnswers(webllmEngine).catch(() => false);
+  if (ok) markVerified(webllmLoaded);
+  useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: webllmLoaded } });
+  return ok;
 }
 
 let webllmLib = null;
@@ -246,6 +273,11 @@ function webllmProvider() {
         }
         if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
         if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: c.usage.extra?.decode_tokens_per_s };
+      }
+      // A whole reply of one or two symbols ("?", "(") is what broken GPU math looks like.
+      const t = text.trim();
+      if (t && t.length <= 4 && !/[\p{L}\p{N}]{2,}/u.test(t) && !signal?.aborted) {
+        throw new Error(`GARBLED: the model only wrote "${t}" — that usually means the GPU computed it wrong.`);
       }
     },
   };

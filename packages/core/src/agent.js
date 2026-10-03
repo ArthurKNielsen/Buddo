@@ -6,7 +6,8 @@ import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
-import { extractCodeFiles, asksForCode, isRefusal } from './codeblocks.js';
+import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
+import { planCodeSave, looksLikeEdit, isNewBuild } from './edits.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -117,10 +118,46 @@ export async function runAgent({
   const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx });
   const alwaysAllowed = new Set();
   let wroteFiles = false;
-  let nudged = false;
+  let nudges = 0;
+  const MAX_NUDGES = 2;
   let emptyRetries = 0;
   let freshNext = false;
-  const lastUserText = () => [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'))?.content || '';
+  const lastUserMsg = () => [...messages].reverse().find((m) => m.role === 'user' && !m.content.startsWith('<tool_result'));
+  const lastUserText = () => lastUserMsg()?.content || '';
+  // What the user typed, without the file Buddo attached for small models.
+  const askedText = () => lastUserText().split('\n\n[Current ')[0];
+
+  /** The page this conversation is working on: the last HTML file written here, else the project's index.html. */
+  const findTarget = async () => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const c = messages[i].content || '';
+      const saved = /\[Buddo saved these code blocks as files: ([^\]]+)\]/.exec(c)?.[1]?.split(',').map((x) => x.trim().replace(/ \(.*\)$/, '')) || [];
+      const written = [...c.matchAll(/<tool:write_file>\s*<path>([^<]+)<\/path>/g)].map((m) => m[1].trim());
+      const html = [...saved, ...written].reverse().find((n) => /\.html?$/i.test(n));
+      if (html) return html;
+    }
+    const all = await workspace.glob?.('**/*.html').catch(() => []);
+    if (all?.includes('index.html')) return 'index.html';
+    return all?.length === 1 ? all[0] : null;
+  };
+  const readTarget = async () => {
+    const path = await findTarget();
+    const content = path ? await workspace.read(path).catch(() => null) : null;
+    return content === null ? null : { path, content };
+  };
+  const fence = (path, content) => `\`\`\`${path.split('.').pop()}\n${content.replace(/\n$/, '')}\n\`\`\``;
+
+  // Small models can't open files themselves: for an edit request, show them the current page.
+  if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
+    const msg = lastUserMsg();
+    if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
+      const t = await readTarget();
+      if (t && t.content.length < 7000) {
+        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\nReply with the COMPLETE updated ${t.path} in one code block.`;
+        onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
+      }
+    }
+  }
 
   /** Ask permission if needed, then run the tool. Returns the result, or null if the user stopped. */
   const perform = async (call, tool) => {
@@ -260,11 +297,13 @@ export async function runAgent({
         });
         return { messages, status: 'error' };
       }
-      const wantsCode = asksForCode(lastUserText());
+      const wantsCode = asksForCode(askedText());
+      const canSave = autoSaveCode && !wroteFiles && mode !== 'plan' && !!workspace.write;
+      const hasCode = /```|~~~/.test(fenceRawHtml(text));
 
-      // Small models sometimes claim they "can't create files". Remind them once that Buddo saves files.
-      if (autoSaveCode && !wroteFiles && !nudged && wantsCode && mode !== 'plan' && isRefusal(text) && !/```/.test(text)) {
-        nudged = true;
+      // Small models sometimes claim they "can't create files". Remind them that Buddo saves files.
+      if (canSave && nudges < MAX_NUDGES && wantsCode && isRefusal(text) && !hasCode) {
+        nudges++;
         messages.push({ role: 'assistant', content: text });
         messages.push({
           role: 'user',
@@ -274,15 +313,47 @@ export async function runAgent({
         continue;
       }
 
+      // Asked for code, got only words (and not a question back): ask for the code.
+      if (canSave && nudges < MAX_NUDGES && wantsCode && !hasCode && !/\?\s*$/.test(text) && text.length < 1500) {
+        nudges++;
+        const t = await readTarget();
+        messages.push({ role: 'assistant', content: text });
+        messages.push({
+          role: 'user',
+          content:
+            t && !isNewBuild(askedText())
+              ? `Write the code now: the COMPLETE updated ${t.path} in one code block.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}`
+              : 'Write the code now: put the file name on its own line, then the complete code in a fenced code block.',
+        });
+        onEvent({ type: 'nudge', text: 'The model only answered in words — asked it for the code' });
+        continue;
+      }
+
       messages.push({ role: 'assistant', content: text || a.thinking.trim() });
       if (!text && a.thinking) onEvent({ type: 'text', delta: a.thinking.trim() });
 
       // The model answered with plain code blocks instead of tool calls → save them as files.
-      if (autoSaveCode && !wroteFiles && mode !== 'plan' && workspace.write) {
+      if (canSave) {
         const files = extractCodeFiles(text || a.thinking, { wantsCode }).filter((f) => wantsCode || !f.inferred);
+        const target = files.length ? await readTarget() : null;
+        const { writes, needFull } = await planCodeSave(files, {
+          target,
+          edit: !!target && !isNewBuild(askedText()),
+          read: (p) => workspace.read(p),
+        });
+        // Only a snippet of the page came back: ask once for the whole file (with the current one attached).
+        if (needFull && !writes.length && target && nudges < MAX_NUDGES) {
+          nudges++;
+          messages.push({
+            role: 'user',
+            content: `Please write the COMPLETE updated ${target.path} (the whole file, not just the changed part) in one code block.\n\n[Current ${target.path}]\n${fence(target.path, target.content)}`,
+          });
+          onEvent({ type: 'nudge', text: `The model sent only part of ${target.path} — asked for the whole file` });
+          continue;
+        }
         const saved = [];
-        for (const f of files.slice(0, 12)) {
-          const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true };
+        for (const f of writes.slice(0, 12)) {
+          const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true, merged: !!f.merged };
           onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
           const result = await perform(call, TOOL_MAP.write_file);
           if (!result) {

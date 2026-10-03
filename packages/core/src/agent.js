@@ -57,6 +57,19 @@ export function slimHistory(messages) {
   });
 }
 
+/** In plain words, the tool result the model is about to read ("styles.css, 84 lines"). */
+function describeResult(name, args = {}, content = '') {
+  const body = content.replace(/^<tool_result[^>]*>\n?|\n?<\/tool_result>$/g, '');
+  const lines = body.split('\n').length;
+  const path = args?.path ? String(args.path).trim() : '';
+  if (name === 'read_file') return `${path || 'a file'}, ${lines} lines`;
+  if (name === 'search') return /^No matches/.test(body) ? `search for ${args?.pattern ?? ''}: no matches` : `search for ${args?.pattern ?? ''}: ${lines} matches`;
+  if (name === 'list_dir' || name === 'glob') return `file list, ${lines} entries`;
+  if (name === 'run_command') return `output of ${String(args?.command ?? 'a command').slice(0, 40)}`;
+  if (name === 'write_file' || name === 'edit_file') return `result of saving ${path}`;
+  return `${name} result`;
+}
+
 /** Shrink old tool results when the conversation gets close to the context budget. */
 export function compactForModel(messages, budget) {
   messages = trimImages(messages);
@@ -331,6 +344,7 @@ export async function runAgent({
     onEvent({ type: 'error', error: `Nothing was changed: ${why}.${said} Your files are as they were — try asking again, or pick a bigger model.` });
     return { messages, status: 'error' };
   };
+  let lastCallArgs = null;
   let lastSig = '';
   let repeats = 0;
   let incomplete = 0;
@@ -386,7 +400,12 @@ export async function runAgent({
     // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").
     const prev = messages[messages.length - 1];
     const after = prev?.role === 'user' && prev.content.startsWith('<tool_result') ? /name="([^"]+)"/.exec(prev.content)?.[1] : null;
-    onEvent({ type: 'step', step, promptTokens: contextTokens(wire), after });
+    // …and what that is made of: Buddo's instructions, the chat so far, and the newest thing (your message or a tool result).
+    const total = contextTokens(wire);
+    const instructions = estimateTokens(system);
+    const latestTokens = prev ? estimateTokens(prev.content) : 0;
+    const latest = !prev ? null : after ? describeResult(after, lastCallArgs, prev.content) : 'your message';
+    onEvent({ type: 'step', step, promptTokens: total, after, breakdown: { instructions, chat: Math.max(0, total - instructions - latestTokens), latest, latestTokens } });
 
     try {
       // After an empty reply, ask for a fresh start (engines that cache the conversation drop that cache).
@@ -774,6 +793,7 @@ export async function runAgent({
     repeats = sig === lastSig ? repeats + 1 : 0;
     lastSig = sig;
 
+    lastCallArgs = call.args;
     const result = await perform(call, tool);
     if (!result) {
       onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });

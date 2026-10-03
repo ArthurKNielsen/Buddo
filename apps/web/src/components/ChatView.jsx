@@ -64,7 +64,9 @@ function Empty() {
 export default function ChatView() {
   const session = useStore((s) => s.sessions.find((x) => x.id === s.activeId));
   const ref = useRef(null);
+  const inner = useRef(null);
   const stick = useRef(true);
+  const lastTop = useRef(0);
   const [showDown, setShowDown] = useState(false);
   const items = session?.items || [];
 
@@ -77,16 +79,29 @@ export default function ChatView() {
     if (stick.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   });
 
+  // Follow the conversation as it grows (cards open, code streams in), not only when the store changes.
+  useEffect(() => {
+    if (!inner.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+    });
+    ro.observe(inner.current);
+    return () => ro.disconnect();
+  }, []);
+
   const onScroll = () => {
     const el = ref.current;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stick.current = dist < 80;
+    // Stop following only when the user scrolls up: content growing or shrinking also fires scroll events.
+    if (dist < 80) stick.current = true;
+    else if (el.scrollTop < lastTop.current - 4) stick.current = false;
+    lastTop.current = el.scrollTop;
     setShowDown(dist > 300);
   };
 
   return (
     <div className="chat" ref={ref} onScroll={onScroll}>
-      <div className="chat-inner">
+      <div className="chat-inner" ref={inner}>
         {!items.length ? (
           <Empty />
         ) : (

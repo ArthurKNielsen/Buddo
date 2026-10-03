@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ArrowLeft, Check, Cpu, Globe, Server, Shield, Zap, Heart, Copy, HardDrive, Box, FolderOpen, Loader2 } from 'lucide-react';
 import { RECOMMENDED_MODELS } from '@buddo/core';
 import { useStore } from '../lib/store.js';
-import { checkEngine, WEBLLM_MODELS, loadWebLLM, hasWebGPU, pickBrowserFolder, useSandbox, isMobile } from '../lib/engine.js';
+import { checkEngine, WEBLLM_MODELS, loadWebLLM, hasWebGPU, pickBrowserFolder, useSandbox, isMobile, usesCpu } from '../lib/engine.js';
 import { supportsFolderAccess } from '../lib/workspaces.js';
 import { PullButton } from './ModelPicker.jsx';
 import Logo from './Logo.jsx';
@@ -295,6 +295,10 @@ export default function SetupModal() {
     // First run on a phone without a local server → default to the fastest Pocket model.
     if (open && !settings.onboarded && isMobile() && !useStore.getState().server) {
       setSettings({ engine: 'webllm', webllmModel: WEBLLM_MODELS.find((m) => m.pocket).id });
+    }
+    // No usable GPU (many Chromebooks) → in-browser models run on the CPU, where Pocket Coder is the fastest coder.
+    else if (open && !settings.onboarded && usesCpu()) {
+      setSettings({ webllmModel: WEBLLM_MODELS.find((m) => m.pocket).id });
     }
   }, [open]);
 

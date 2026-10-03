@@ -189,16 +189,16 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
 
 /** Models we recommend, roughly ordered by quality-per-GB for coding agents. */
 export const RECOMMENDED_MODELS = [
-  { id: 'qwen2.5-coder:7b', label: 'Qwen 2.5 Coder 7B', size: '4.7 GB', note: 'Best all-rounder for most laptops', tag: 'Recommended' },
-  { id: 'qwen3:8b', label: 'Qwen 3 8B', size: '5.2 GB', note: 'Strong reasoning with thinking mode', tag: 'Smart' },
-  { id: 'qwen2.5-coder:14b', label: 'Qwen 2.5 Coder 14B', size: '9.0 GB', note: 'Noticeably smarter, needs 16 GB+ RAM', tag: 'Pro' },
-  { id: 'qwen3-coder:30b', label: 'Qwen 3 Coder 30B', size: '19 GB', note: 'Top-tier local agent, needs 32 GB+ RAM', tag: 'Beast' },
-  { id: 'gpt-oss:20b', label: 'gpt-oss 20B', size: '14 GB', note: 'Open-weight reasoning model', tag: 'Reasoning' },
-  { id: 'deepseek-coder-v2:16b', label: 'DeepSeek Coder V2 16B', size: '8.9 GB', note: 'Fast MoE coder', tag: 'Fast' },
-  { id: 'qwen2.5vl:7b', label: 'Qwen 2.5 VL 7B', size: '6.0 GB', note: 'Sees images & video frames 👁', tag: 'Vision' },
-  { id: 'gemma3:4b', label: 'Gemma 3 4B', size: '3.3 GB', note: 'Small, fast, sees images 👁', tag: 'Vision' },
-  { id: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder 1.5B', size: '1.0 GB', note: 'Pocket-size, very fast ⚡', tag: 'Fast' },
-  { id: 'qwen2.5-coder:3b', label: 'Qwen 2.5 Coder 3B', size: '1.9 GB', note: 'For low-RAM machines', tag: 'Light' },
+  { id: 'qwen2.5-coder:7b', label: 'Qwen 2.5 Coder 7B', size: '4.7 GB', note: 'Best all-rounder for most laptops', tag: 'Recommended', uses: ['code'] },
+  { id: 'qwen3:8b', label: 'Qwen 3 8B', size: '5.2 GB', note: 'Strong reasoning with thinking mode', tag: 'Smart', uses: ['think', 'search', 'chat'] },
+  { id: 'qwen2.5-coder:14b', label: 'Qwen 2.5 Coder 14B', size: '9.0 GB', note: 'Noticeably smarter, needs 16 GB+ RAM', tag: 'Pro', uses: ['code'] },
+  { id: 'qwen3-coder:30b', label: 'Qwen 3 Coder 30B', size: '19 GB', note: 'Top-tier local agent, needs 32 GB+ RAM', tag: 'Beast', uses: ['code', 'search'] },
+  { id: 'gpt-oss:20b', label: 'gpt-oss 20B', size: '14 GB', note: 'Open-weight reasoning model', tag: 'Reasoning', uses: ['think', 'search', 'chat'] },
+  { id: 'deepseek-coder-v2:16b', label: 'DeepSeek Coder V2 16B', size: '8.9 GB', note: 'Fast MoE coder', tag: 'Fast', uses: ['code'] },
+  { id: 'qwen2.5vl:7b', label: 'Qwen 2.5 VL 7B', size: '6.0 GB', note: 'Sees images & video frames 👁', tag: 'Vision', uses: ['vision', 'chat'] },
+  { id: 'gemma3:4b', label: 'Gemma 3 4B', size: '3.3 GB', note: 'Small, fast, sees images 👁', tag: 'Vision', uses: ['vision', 'chat'] },
+  { id: 'qwen2.5-coder:1.5b', label: 'Qwen 2.5 Coder 1.5B', size: '1.0 GB', note: 'Pocket-size, very fast ⚡', tag: 'Fast', uses: ['code'] },
+  { id: 'qwen2.5-coder:3b', label: 'Qwen 2.5 Coder 3B', size: '1.9 GB', note: 'For low-RAM machines', tag: 'Light', uses: ['code'] },
 ];
 
 /** Models that already reason in their own thinking channel (no need to ask them to think out loud). */

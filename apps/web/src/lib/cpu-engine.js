@@ -74,6 +74,7 @@ export async function* cpuStream({ model, messages, signal, temperature = 0.2, m
     max_tokens: maxTokens,
     abortSignal: signal,
   });
+  let usage = false;
   try {
     for await (const c of stream) {
       const t = c.choices?.[0]?.delta?.content;
@@ -83,10 +84,14 @@ export async function* cpuStream({ model, messages, signal, temperature = 0.2, m
         yield { type: 'text', text: t };
       }
       if (c.choices?.[0]?.finish_reason) yield { type: 'finish', reason: c.choices[0].finish_reason };
+      if (c.usage) usage = true;
       if (c.usage) yield { type: 'usage', prompt: c.usage.prompt_tokens, completion: c.usage.completion_tokens, tps: first ? count / ((performance.now() - first) / 1000) : 0 };
     }
   } catch (e) {
     if (signal?.aborted) return;
     throw e;
   }
+  // wllama doesn't always report usage: time the reply ourselves (one streamed piece ≈ one token).
+  const secs = first ? (performance.now() - first) / 1000 : 0;
+  if (!usage && count > 1 && secs > 0) yield { type: 'usage', completion: count, tps: count / secs };
 }

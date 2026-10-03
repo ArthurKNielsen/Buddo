@@ -3,8 +3,9 @@ import { motion } from 'framer-motion';
 import { Cpu, Check, Download, RefreshCw, Sparkles } from 'lucide-react';
 import { RECOMMENDED_MODELS, guessVision } from '@buddo/core';
 import { useStore } from '../lib/store.js';
-import { checkEngine, pullModel, WEBLLM_MODELS, loadWebLLM, isPocketModel } from '../lib/engine.js';
+import { checkEngine, pullModel, WEBLLM_MODELS, loadWebLLM, isPocketModel, usesCpu } from '../lib/engine.js';
 import Modal from './Modal.jsx';
+import { ModelGuide, UseChips, SpeedLine, usesOf, bestFor } from './ModelInfo.jsx';
 
 const fmtSize = (b) => (b ? (b / 1e9).toFixed(1) + ' GB' : '');
 
@@ -56,6 +57,14 @@ export default function ModelPicker() {
   const models = isWeb ? WEBLLM_MODELS : engine.models;
   const current = isWeb ? settings.webllmModel : settings.model;
   const notInstalled = settings.engine === 'ollama' ? RECOMMENDED_MODELS.filter((r) => !engine.models.some((m) => m.id === r.id)) : [];
+  const choose = (id) => {
+    if (isWeb) {
+      setSettings({ webllmModel: id });
+      loadWebLLM(id).catch(() => {});
+    } else if (engine.models.some((m) => m.id === id || m.id === `${id}:latest`)) setSettings({ model: engine.models.find((m) => m.id === id || m.id === `${id}:latest`).id });
+    else return useStore.getState().toast(`${id} isn't downloaded yet — download it under "Recommended free models"`, 'info');
+    close();
+  };
 
   return (
     <Modal
@@ -79,7 +88,7 @@ export default function ModelPicker() {
         <div className="engine-line">
           <span className={`dot ${isWeb || engine.status === 'ok' ? 'ok' : engine.status === 'checking' ? 'wait' : 'down'}`} />
           <span>
-            {isWeb ? 'In-browser (WebGPU)' : settings.engine === 'openai' ? 'LM Studio / OpenAI-compatible' : 'Ollama'}
+            {isWeb ? (usesCpu(settings) ? 'In-browser (CPU)' : 'In-browser (WebGPU)') : settings.engine === 'openai' ? 'LM Studio / OpenAI-compatible' : 'Ollama'}
             {engine.version && ` v${engine.version}`}
           </span>
           {!isWeb && engine.status === 'down' && <span className="faint truncate">— not reachable</span>}
@@ -89,6 +98,7 @@ export default function ModelPicker() {
             No models found. {settings.engine === 'ollama' ? 'Download one below.' : 'Load a model in your local server.'}
           </div>
         )}
+        {(isWeb || settings.engine === 'ollama') && <ModelGuide onPick={choose} />}
         <div className="model-list">
           {models.map((m, i) => (
             <motion.button
@@ -97,13 +107,7 @@ export default function ModelPicker() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              onClick={() => {
-                if (isWeb) {
-                  setSettings({ webllmModel: m.id });
-                  loadWebLLM(m.id).catch(() => {});
-                } else setSettings({ model: m.id });
-                close();
-              }}
+              onClick={() => choose(m.id)}
             >
               <div className="model-icon">
                 <Cpu size={15} />
@@ -114,7 +118,9 @@ export default function ModelPicker() {
                   {!isWeb && guessVision(m.id) && <span className="vision-badge">👁 vision</span>}
                   {(m.pocket || isPocketModel(m.id)) && <span className="pocket-badge">⚡ Pocket</span>}
                 </div>
-                <div className="faint">{[m.params, m.quant, typeof m.size === 'number' ? fmtSize(m.size) : m.size, m.note].filter(Boolean).join(' · ')}</div>
+                <UseChips uses={usesOf(m)} />
+                <div className="faint">{[bestFor(m), m.params, m.quant, typeof m.size === 'number' ? fmtSize(m.size) : m.size].filter(Boolean).join(' · ')}</div>
+                <SpeedLine m={m} />
               </div>
               <span className="spacer" />
               {m.id === current && <Check size={16} className="ok" />}
@@ -145,9 +151,11 @@ export default function ModelPicker() {
                       <span className="mono">{m.id}</span>
                       <span className="chip">{m.tag}</span>
                     </div>
+                    <UseChips uses={usesOf(m)} />
                     <div className="faint">
                       {m.size} · {m.note}
                     </div>
+                    <SpeedLine m={m} />
                   </div>
                   <span className="spacer" />
                   <PullButton id={m.id} compact />

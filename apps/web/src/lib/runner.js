@@ -1,6 +1,6 @@
 import { runAgent, gatherContext, parseSlash, COMPACT_PROMPT, contextTokens, locateSnippet, learnAboutUser, VIBES } from '@buddo/core';
 import { useStore, uid } from './store.js';
-import { getProvider, getWorkspace, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision, recheckGpu, usesCpu, recordSpeed } from './engine.js';
+import { getProvider, getWorkspace, workspaceFor, currentModel, refreshFileIndex, checkEngine, liteMode, isMobile, thinkAloud, webllmPrecision, recheckGpu, usesCpu, recordSpeed } from './engine.js';
 import { api } from './workspaces.js';
 
 const S = () => useStore.getState();
@@ -369,8 +369,8 @@ export async function compact() {
 }
 
 export async function revertChange(sessionId, path) {
-  const ws = getWorkspace();
   const s = S().sessions.find((x) => x.id === sessionId);
+  const ws = workspaceFor(s);
   const c = s?.changes.find((x) => x.path === path && !x.reverted);
   if (!c) return;
   try {

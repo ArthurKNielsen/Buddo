@@ -241,6 +241,11 @@ export function sandboxWorkspace(name = 'sandbox') {
       delete files[norm(p)];
       saveSandbox(files);
     },
+    /** Delete every file whose path passes `test`. */
+    removeWhere(test) {
+      for (const k of Object.keys(files)) if (test(k)) delete files[k];
+      saveSandbox(files);
+    },
     clear() {
       for (const k of Object.keys(files)) delete files[k];
       saveSandbox(files);
@@ -254,6 +259,53 @@ export function sandboxWorkspace(name = 'sandbox') {
     fetchUrl: fetchText,
     webSearch: browserSearch,
     run: async () => ({ code: 127, stdout: '', stderr: 'Commands are not available in the browser sandbox.' }),
+  };
+}
+
+/**
+ * One chat's view of the browser sandbox: its own folder (chats/<id>/), shown as the project root.
+ * dir '' is the shared root that chats from before per-chat folders use (chats/ itself is hidden there).
+ */
+export function chatSandbox(base, dir = '') {
+  const norm = (p) => p.replace(/^\.?\/*/, '').replace(/\/+/g, '/');
+  if (!dir) {
+    const hidden = (p) => p === 'chats' || p.startsWith('chats/');
+    const keys = () => Object.keys(base.files).filter((k) => !hidden(k));
+    return {
+      ...base,
+      chatDir: '',
+      list: async (path, depth) => (await base.list(path, depth)).filter((e) => !hidden(e.path)),
+      glob: async (pattern) => matchGlob(keys(), pattern),
+      search: async (pattern, { path, glob, limit } = {}) => {
+        let l = keys();
+        if (path && path !== '.') l = l.filter((f) => f.startsWith(norm(path).replace(/\/$/, '') + '/'));
+        return searchFiles({ files: l, read: base.read, pattern, glob, limit });
+      },
+      clear: () => base.removeWhere((k) => !hidden(k)),
+    };
+  }
+  const pre = `${dir.replace(/\/$/, '')}/`;
+  const to = (p) => pre + norm(p);
+  const keys = () => Object.keys(base.files).filter((k) => k.startsWith(pre)).map((k) => k.slice(pre.length));
+  const read = (p) => base.read(to(p)).catch(() => Promise.reject(new Error(`File not found: ${p}`)));
+  return {
+    ...base,
+    chatDir: dir,
+    files: undefined,
+    async list(path = '.', depth = 2) {
+      const at = path === '.' || !path ? pre.slice(0, -1) : to(path);
+      return (await base.list(at, depth)).filter((e) => e.path.startsWith(pre)).map((e) => ({ ...e, path: e.path.slice(pre.length) }));
+    },
+    read,
+    write: (p, content) => base.write(to(p), content),
+    remove: (p) => base.remove(to(p)),
+    clear: () => base.removeWhere((k) => k.startsWith(pre)),
+    search: async (pattern, { path, glob, limit } = {}) => {
+      let l = keys();
+      if (path && path !== '.') l = l.filter((f) => f.startsWith(norm(path).replace(/\/$/, '') + '/'));
+      return searchFiles({ files: l, read, pattern, glob, limit });
+    },
+    glob: async (pattern) => matchGlob(keys(), pattern),
   };
 }
 

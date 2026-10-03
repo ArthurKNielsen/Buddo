@@ -29,8 +29,9 @@ export const DEFAULT_SETTINGS = {
   onboarded: false,
 };
 
-export const newSession = () => ({
-  id: uid(),
+export const newSession = (id = uid()) => ({
+  id,
+  sandboxDir: `chats/${id}`, // this chat's own folder in the browser sandbox
   title: 'New chat',
   createdAt: Date.now(),
   updatedAt: Date.now(),
@@ -203,6 +204,8 @@ export const useStore = create(
         sessions: (persisted?.sessions || []).map((s) => ({
           ...newSession(),
           ...s,
+          // Chats from before per-chat folders keep the shared sandbox files they were made with.
+          sandboxDir: s.sandboxDir ?? '',
           items: (s.items || []).map((it) => (it.status === 'streaming' ? { ...it, status: 'stopped' } : it)),
         })),
       }),

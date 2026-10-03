@@ -68,9 +68,27 @@ function TreeNode({ node, sort, depth, onOpen, open, toggle, changed }) {
   );
 }
 
+/** Folder + file entries for a list of file paths. */
+function entriesFor(paths) {
+  const dirs = new Set();
+  const out = [];
+  for (const p of [...paths].sort()) {
+    const parts = p.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const d = parts.slice(0, i).join('/');
+      if (!dirs.has(d)) dirs.add(d), out.push({ path: d, type: 'dir' });
+    }
+    out.push({ path: p, type: 'file' });
+  }
+  return out;
+}
+
 function FilesTab() {
-  const entries = useStore((s) => s.fileIndex);
+  const allEntries = useStore((s) => s.fileIndex);
   const ws = useStore((s) => s.ws);
+  // A real folder is shared by every chat: show this chat's files unless asked for the whole folder.
+  // (In the browser sandbox each chat already has its own folder.)
+  const scope = useStore((s) => s.ui.treeScope || 'chat');
   const session = useStore((s) => s.sessions.find((x) => x.id === s.activeId));
   const viewing = useStore((s) => s.ui.viewing);
   const { setUI } = useStore.getState();
@@ -78,6 +96,9 @@ function FilesTab() {
   const [file, setFile] = useState(null);
   const [filter, setFilter] = useState('');
   const changed = useMemo(() => new Set((session?.changes || []).filter((c) => !c.reverted).map((c) => c.path)), [session?.changes]);
+  const shared = ws?.type !== 'sandbox';
+  const chatOnly = shared && scope === 'chat';
+  const entries = useMemo(() => (chatOnly ? entriesFor(changed) : allEntries), [chatOnly, changed, allEntries]);
 
   const openFile = async (path) => {
     const kind = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(path) ? 'image' : /\.(mp4|mov|webm|m4v|mkv)$/i.test(path) ? 'video' : /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(path) ? 'audio' : null;
@@ -163,6 +184,19 @@ function FilesTab() {
   return (
     <div className="tab-pane">
       <div className="pane-bar">
+        {shared && (
+          <div className="seg tree-scope" title="Which files to show">
+            {[
+              ['chat', 'This chat'],
+              ['all', 'All files'],
+            ].map(([id, l]) => (
+              <button key={id} className={scope === id ? 'on' : ''} onClick={() => setUI({ treeScope: id })}>
+                {scope === id && <motion.div layoutId="tree-scope-pill" className="seg-pill" />}
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
         <input className="pane-filter" placeholder={`Filter ${entries.filter((e) => e.type === 'file').length} files…`} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {!ws?.exec && ws?.type === 'sandbox' && (
           <button
@@ -171,6 +205,7 @@ function FilesTab() {
             onClick={async () => {
               const name = prompt('File name (e.g. src/app.js)');
               if (name) {
+                useStore.getState().ensureSession();
                 await getWorkspace().write(name, '');
                 refreshFileIndex();
               }
@@ -187,8 +222,15 @@ function FilesTab() {
         {!entries.length && (
           <div className="pane-empty">
             <FolderTree size={28} />
-            <p>No files yet.</p>
-            <span className="faint">{ws?.type === 'sandbox' ? 'Ask Buddo to build something — files appear here.' : 'This folder is empty.'}</span>
+            <p>{chatOnly ? 'No files from this chat yet.' : 'No files yet.'}</p>
+            <span className="faint">
+              {ws?.type === 'sandbox' ? 'Each chat has its own files. Ask Buddo to build something and they appear here.' : chatOnly ? 'Files Buddo creates or changes in this chat show up here.' : 'This folder is empty.'}
+            </span>
+            {chatOnly && allEntries.length > 0 && (
+              <button className="btn btn-outline btn-sm" style={{ marginTop: 10 }} onClick={() => setUI({ treeScope: 'all' })}>
+                Show all files in the folder
+              </button>
+            )}
           </div>
         )}
         {filtered
@@ -463,9 +505,9 @@ export default function RightPanel() {
         {ws?.type === 'sandbox' && tab === 'files' && (
           <button
             className="icon-btn sm"
-            title="Clear sandbox"
+            title="Delete this chat's files"
             onClick={() => {
-              if (confirm('Delete all files in the browser sandbox?')) {
+              if (confirm("Delete all of this chat's files?")) {
                 getWorkspace().clear?.();
                 refreshFileIndex();
               }

@@ -4,23 +4,45 @@ import { ollamaProvider, openaiCompatProvider, thinksNatively, looksGarbled } fr
 import { useStore } from './store.js';
 import { loadCpu, cpuStream, cpuSupports } from './cpu-engine.js';
 import {
-  detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess,
+  detectServer, serverWorkspace, sandboxWorkspace, browserFolderWorkspace, api, loadHandle, saveHandle, supportsFolderAccess, chatSandbox,
 } from './workspaces.js';
 
 let workspace = sandboxWorkspace();
 let serverProbe = null;
 const probeServer = () => (serverProbe ||= detectServer());
-export const getWorkspace = () => workspace;
+
+// In the browser sandbox every chat has its own folder, so two chats never share (or overwrite) files.
+// Real folders (local or opened in the browser) are one project that every chat works on.
+const views = new Map();
+/** The workspace a chat works in. */
+export function workspaceFor(session) {
+  if (workspace.type !== 'sandbox') return workspace;
+  const dir = session ? session.sandboxDir ?? '' : 'chats/_new';
+  if (!views.has(dir)) views.set(dir, chatSandbox(workspace, dir));
+  return views.get(dir);
+}
+/** The workspace of the chat on screen. */
+export const getWorkspace = () => workspaceFor(useStore.getState().activeSession());
+
+// Show the right files when switching chats; drop a deleted chat's sandbox folder.
+useStore.subscribe((s, prev) => {
+  if (s.activeId !== prev.activeId) refreshFileIndex();
+  if (s.sessions !== prev.sessions && workspace.type === 'sandbox') {
+    const alive = new Set(s.sessions.map((x) => x.sandboxDir));
+    for (const x of prev.sessions) if (x.sandboxDir && !alive.has(x.sandboxDir)) workspace.removeWhere((k) => k.startsWith(`${x.sandboxDir}/`));
+  }
+});
 
 function publishWorkspace(ws) {
   workspace = ws;
+  views.clear();
   useStore.setState({ ws: { kind: ws.kind, type: ws.type, name: ws.name, root: ws.root, exec: !!ws.capabilities.exec } });
   refreshFileIndex();
 }
 
 export async function refreshFileIndex() {
   try {
-    const entries = await workspace.list('.', 12);
+    const entries = await getWorkspace().list('.', 12);
     useStore.setState({ fileIndex: entries });
   } catch {
     useStore.setState({ fileIndex: [] });

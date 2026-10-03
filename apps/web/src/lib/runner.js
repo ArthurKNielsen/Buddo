@@ -161,7 +161,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
       const step = draft.steps?.[draft.steps.length - 1];
       switch (e.type) {
         case 'step':
-          draft.steps = [...(draft.steps || []), { n: e.step + 1, startedAt: Date.now(), promptTokens: e.promptTokens, after: e.after, raw: '' }];
+          draft.steps = [...(draft.steps || []), { n: e.step + 1, startedAt: Date.now(), promptTokens: e.promptTokens, after: e.after, breakdown: e.breakdown, raw: '' }];
           draft.phase = { kind: 'reading', tokens: e.promptTokens, after: e.after, at: Date.now() };
           break;
         case 'raw':
@@ -198,7 +198,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           break;
         case 'tool-start':
           if (step && !step.endedAt) step.endedAt = Date.now();
-          if (step && !e.call.auto) step.tool = e.call.name;
+          if (step && !e.call.auto) Object.assign(step, { tool: e.call.name, callId: e.call.id });
           draft.phase = { kind: 'tool', name: e.call.name, at: Date.now() };
           draft.preparing = null;
           draft.live = null;

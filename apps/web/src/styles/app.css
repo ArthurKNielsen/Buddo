@@ -273,6 +273,21 @@
 .act-sum { min-width: 0; }
 .act-raw { margin: 4px 0 6px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--code-bg); border: 1px solid var(--border); font: 11.5px/1.55 var(--mono); color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
 .act-thought { color: var(--text-3); font-style: italic; }
+.act-detail { display: flex; flex-direction: column; gap: 5px; margin: 4px 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-hover); border: 1px solid var(--border); font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.act-row { display: grid; grid-template-columns: 18px 78px 1fr; gap: 6px; align-items: baseline; }
+.act-key { font-weight: 600; color: var(--text-3); font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; }
+.act-row b { color: var(--text); font-weight: 600; }
+.act-row code { font: 11.5px var(--mono); }
+.act-minidiff { margin-top: 4px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+.act-mini { font: 11px/1.5 var(--mono); padding: 0 8px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.act-mini.del { background: rgba(239, 68, 68, 0.12); color: #c0392b; }
+.act-mini.add { background: rgba(34, 197, 94, 0.12); color: #1e8449; }
+.act-add { color: #1e8449; font-weight: 600; }
+.act-del { color: #c0392b; font-weight: 600; }
+.act-bad { color: #c0392b; }
+.act-rawbtn { align-self: flex-start; font-size: 11.5px; text-decoration: underline; padding: 2px 0; }
+.act-detail .act-raw { margin: 2px 0 0; }
+.act-live-thought { font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .thinking { border-left: 2px solid var(--border-2); padding-left: 12px; }
 .thinking-head { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-3); height: 26px; }

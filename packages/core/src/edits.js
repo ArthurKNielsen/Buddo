@@ -124,9 +124,13 @@ export async function planCodeSave(files, { target, edit = false, read = async (
       else if (target) writes.push({ ...f, path: target.path, lang: 'html', content: mergeCssIntoHtml(target.content, f.content), merged: true });
       continue;
     }
-    // A snippet of an existing page/script: we can't safely splice it in — ask for the whole file.
+    // A snippet of an existing page/script: splice the changed lines in where they clearly belong,
+    // else ask for the whole file.
     if (fragmentOfTarget || (existing && existing.split('\n').length > 8 && f.content.length < existing.length * 0.5)) {
-      needFull = true;
+      const base = existing !== null && !fragmentOfTarget ? { path: f.path, content: existing } : target;
+      const m = base && mergeChangedLines(base.content, f.content);
+      if (m) writes.push({ ...f, path: base.path, content: m.content, merged: true, edit: { old: m.old, new: m.new } });
+      else needFull = true;
       continue;
     }
     writes.push(f);
@@ -176,4 +180,88 @@ export function parseFindReplace(text = '') {
     i = FR_START.test(lines[j] || '') ? j - 1 : j;
   }
   return out;
+}
+
+// ── Changed-lines edits ──
+// The easiest edit for a tiny model: "write only the lines you change". It answers with e.g.
+// `<button>Go</button>`, and Buddo finds the line it replaces (`<button>Send</button>`) by similarity.
+// Lines that match nothing are new: they go after the matched line above them.
+
+function similarity(a, b) {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+const normLine = (s) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+const wordsOf = (s) => new Set(s.match(/[a-z0-9]{3,}/g) || []);
+const tagOf = (s) => /^<([a-z][\w-]*)/.exec(s)?.[1] || '';
+
+/**
+ * Splice a snippet of changed lines into a file. Returns { content, old, new } (old/new: the replaced
+ * block of lines and its replacement), or null when it can't tell safely where the lines go.
+ */
+export function mergeChangedLines(content = '', snippet = '') {
+  const file = content.replace(/\n$/, '').split('\n');
+  const snip = snippet.split('\n').filter((l) => l.trim());
+  if (!snip.length || snip.length > 40 || snip.length >= file.length * 0.8) return null;
+  const keys = file.map(normLine);
+  // Hints for lines whose text changed a lot: a word only that line has ("pug"), or a tag only it has (<h1>).
+  const words = keys.map(wordsOf);
+  const wordCount = new Map();
+  words.forEach((w, i) => w.forEach((x) => wordCount.set(`${tagOf(keys[i])} ${x}`, (wordCount.get(`${tagOf(keys[i])} ${x}`) || 0) + 1)));
+  const tagCount = new Map();
+  for (const k of keys) if (tagOf(k)) tagCount.set(tagOf(k), (tagCount.get(tagOf(k)) || 0) + 1);
+  const hint = (k, i) => {
+    let bonus = 0;
+    // (unique among lines with the same tag: "pug" is in one <p>, even if an <h2> says Pug too)
+    if (tagOf(k) === tagOf(keys[i])) for (const x of wordsOf(k)) if (wordCount.get(`${tagOf(k)} ${x}`) === 1 && words[i].has(x)) bonus = 0.3;
+    if (tagOf(k) && tagOf(k) === tagOf(keys[i]) && tagCount.get(tagOf(k)) === 1) bonus = 0.3;
+    return bonus;
+  };
+  const map = [];
+  let last = -1;
+  for (const line of snip) {
+    const k = normLine(line);
+    let best = -1;
+    let score = 0;
+    let second = 0;
+    for (let i = last + 1; i < file.length; i++) {
+      const s = similarity(k, keys[i]) + hint(k, i);
+      if (s > score) [second, score, best] = [score, s, i];
+      else if (s > second) second = s;
+    }
+    // Close enough, and clearly closer than any other line (12 similar <h2> lines → don't guess).
+    if (best >= 0 && score >= 0.6 && (score >= 1 || score - second >= 0.12)) {
+      map.push(best);
+      last = best;
+    } else map.push(-1);
+  }
+  const hits = map.filter((i) => i >= 0);
+  if (!hits.length) return null;
+  const from = hits[0];
+  const to = hits[hits.length - 1];
+  const out = [];
+  let p = from;
+  let indent = /^\s*/.exec(file[from])[0];
+  snip.forEach((line, k) => {
+    const i = map[k];
+    if (i < 0) {
+      out.push(indent + line.trim());
+      return;
+    }
+    while (p < i) out.push(file[p++]);
+    indent = /^\s*/.exec(file[i])[0];
+    out.push(indent + line.trim());
+    p = i + 1;
+  });
+  const before = file.slice(from, to + 1);
+  if (out.join('\n') === before.join('\n')) return null; // the model changed nothing
+  const merged = [...file.slice(0, from), ...out, ...file.slice(to + 1)].join('\n') + (content.endsWith('\n') ? '\n' : '');
+  return { content: merged, old: before.join('\n'), new: out.join('\n') };
 }

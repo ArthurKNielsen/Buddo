@@ -98,15 +98,23 @@ test('edit request: small model sees the current page, its CSS fragment is merge
   await assert.rejects(r.read('styles.css'), 'no stray new file');
 });
 
-test('edit request: a JS snippet makes Buddo ask for the whole file, then saves it', async () => {
-  const fixed = PAGE.replace("alert('hi')", "alert('Hello!')");
-  const turns = ["Replace the click handler with:\n\n```javascript\ndocument.querySelector('.button').addEventListener('click', () => alert('Hello!'));\n```", `Here is the complete file:\n\n\`\`\`html\n${fixed}\`\`\``];
+test('edit request: a JS snippet is spliced into the page where it belongs (one call)', async () => {
+  const turns = ["Replace the click handler with:\n\n```javascript\ndocument.querySelector('.button').addEventListener('click', () => alert('Hello!'));\n```"];
   turns.prompt = 'Change the alert text to Hello!';
   const r = await chat(turns, { files: { 'index.html': PAGE } });
   assert.equal(r.res.status, 'done');
-  assert.equal(r.events.filter((e) => e.type === 'nudge' && /only part/.test(e.text)).length, 1);
-  assert.match(await r.read('index.html'), /alert\('Hello!'\)/);
+  assert.equal(await r.read('index.html'), PAGE.replace("alert('hi')", "alert('Hello!')"));
+  assert.equal(r.seen.length, 1);
   await assert.rejects(r.read('script.js'));
+});
+
+test('edit request: a snippet that could go in several places → Buddo asks for the whole file', async () => {
+  const fixed = PAGE.replace('<h1>Button Example</h1>', '<h1>Buttons</h1>');
+  const turns = ['```html\n<p>Some new paragraph</p>\n```', `\`\`\`html\n${fixed}\`\`\``];
+  turns.prompt = 'Change the text';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.events.filter((e) => e.type === 'nudge' && /only part/.test(e.text)).length, 1);
+  assert.equal(await r.read('index.html'), fixed);
 });
 
 test('Llama JSON tool call writes the file', async () => {
@@ -145,12 +153,24 @@ test('parseFindReplace: file name, fences, several blocks, missing end marker', 
 // Find/replace is only asked for on big files (small ones are rewritten whole in one reply).
 const BIG = PAGE.replace('<h1>Button Example</h1>', `<h1>Button Example</h1>\n${Array.from({ length: 80 }, (_, n) => `<p>Paragraph ${n + 1} of the page.</p>`).join('\n')}`);
 
-test('edit request on a small page: asks for the whole file at once (tiny models copy edit examples)', async () => {
+test('edit request: only the changed line comes back and lands in place (seen with tiny models on a Chromebook)', async () => {
+  const turns = ['```html\n  background-color: green;\n```'];
+  turns.prompt = 'Make the button green';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[0].at(-1).content, /ONLY the lines you change/);
+  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'green'));
+  const edit = r.events.find((e) => e.type === 'tool-start' && e.call.name === 'edit_file');
+  assert.ok(edit, 'shown as an edit, not an overwrite');
+  assert.equal(edit.call.args.new, '  background-color: green;');
+  assert.equal(r.seen.length, 1);
+});
+
+test('edit request: a whole page sent back anyway is still saved (one call)', async () => {
   const turns = [`\`\`\`html\n${PAGE.replace('#4CAF50', 'green')}\`\`\``];
   turns.prompt = 'Make the button green';
   const r = await chat(turns, { files: { 'index.html': PAGE } });
   assert.equal(r.res.status, 'done');
-  assert.match(r.seen[0].at(-1).content, /COMPLETE updated index\.html/);
   assert.doesNotMatch(r.seen[0].at(-1).content, /<<<<<<< SEARCH/);
   assert.doesNotMatch(r.seen[0][0].content, /<<<<<<< SEARCH/, 'lite prompt stays short');
   assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'green'));
@@ -162,7 +182,7 @@ test('edit request: a find/replace reply changes only that line', async () => {
   turns.prompt = 'Make the button blue';
   const r = await chat(turns, { files: { 'index.html': BIG } });
   assert.equal(r.res.status, 'done');
-  assert.match(r.seen[0].at(-1).content, /<<<<<<< SEARCH/, 'asked for just the change');
+  assert.match(r.seen[0].at(-1).content, /ONLY the lines you change/, 'asked for just the change');
   assert.equal(await r.read('index.html'), BIG.replace('#4CAF50', 'blue'));
   assert.equal(r.seen.length, 1, 'one model call');
 });
@@ -183,7 +203,6 @@ test('edit request: markers copied without code (seen on a Chromebook) → shown
   turns.prompt = 'Make the button green';
   const r = await chat(turns, { files: { 'index.html': BIG } });
   assert.equal(r.res.status, 'done');
-  assert.match(r.seen[0].at(-1).content, /index\.html\n<<<<<<< SEARCH\n<p>Old text<\/p>\n=======\n/, 'markers spelled out line by line');
   assert.match(r.seen[1].at(-1).content, /had no code in it[\s\S]*<<<<<<< SEARCH\n/);
   assert.ok(r.events.some((e) => e.type === 'nudge' && /markers but no code/.test(e.text)));
   assert.equal(await r.read('index.html'), BIG.replace('#4CAF50', 'green'));

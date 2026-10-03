@@ -142,22 +142,36 @@ test('parseFindReplace: file name, fences, several blocks, missing end marker', 
   assert.deepEqual(parseFindReplace('a merge conflict?\n<<<<<<< HEAD\nno split'), []);
 });
 
+// Find/replace is only asked for on big files (small ones are rewritten whole in one reply).
+const BIG = PAGE.replace('<h1>Button Example</h1>', `<h1>Button Example</h1>\n${Array.from({ length: 80 }, (_, n) => `<p>Paragraph ${n + 1} of the page.</p>`).join('\n')}`);
+
+test('edit request on a small page: asks for the whole file at once (tiny models copy edit examples)', async () => {
+  const turns = [`\`\`\`html\n${PAGE.replace('#4CAF50', 'green')}\`\`\``];
+  turns.prompt = 'Make the button green';
+  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[0].at(-1).content, /COMPLETE updated index\.html/);
+  assert.doesNotMatch(r.seen[0].at(-1).content, /<<<<<<< SEARCH/);
+  assert.doesNotMatch(r.seen[0][0].content, /<<<<<<< SEARCH/, 'lite prompt stays short');
+  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'green'));
+  assert.equal(r.seen.length, 1, 'one model call');
+});
+
 test('edit request: a find/replace reply changes only that line', async () => {
   const turns = ['index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: blue;\n>>>>>>> REPLACE'];
   turns.prompt = 'Make the button blue';
-  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  const r = await chat(turns, { files: { 'index.html': BIG } });
   assert.equal(r.res.status, 'done');
   assert.match(r.seen[0].at(-1).content, /<<<<<<< SEARCH/, 'asked for just the change');
-  assert.match(r.seen[0][0].content, /<<<<<<< SEARCH/, 'lite prompt teaches the format');
-  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'blue'));
+  assert.equal(await r.read('index.html'), BIG.replace('#4CAF50', 'blue'));
   assert.equal(r.seen.length, 1, 'one model call');
 });
 
 test('edit request: a find/replace that does not match is retried, then the whole file is asked for', async () => {
-  const fixed = PAGE.replace('#4CAF50', 'blue');
+  const fixed = BIG.replace('#4CAF50', 'blue');
   const turns = ['<<<<<<< SEARCH\ncolor: green;\n=======\ncolor: blue;\n>>>>>>> REPLACE', '<<<<<<< SEARCH\nnope\n=======\nstill nope\n>>>>>>> REPLACE', `\`\`\`html\n${fixed}\`\`\``];
   turns.prompt = 'Make the button blue';
-  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  const r = await chat(turns, { files: { 'index.html': BIG } });
   assert.equal(r.res.status, 'done');
   assert.match(r.seen[1].at(-1).content, /didn't apply[\s\S]*\[Current index\.html\]/);
   assert.match(r.seen[2].at(-1).content, /COMPLETE updated index\.html/);
@@ -167,17 +181,17 @@ test('edit request: a find/replace that does not match is retried, then the whol
 test('edit request: markers copied without code (seen on a Chromebook) → shown an example, then the edit applies', async () => {
   const turns = ['<<<<<<< SEARCH / ======= / >>>>>>> REPLACE', 'index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: green;\n>>>>>>> REPLACE'];
   turns.prompt = 'Make the button green';
-  const r = await chat(turns, { files: { 'index.html': PAGE } });
+  const r = await chat(turns, { files: { 'index.html': BIG } });
   assert.equal(r.res.status, 'done');
   assert.match(r.seen[0].at(-1).content, /index\.html\n<<<<<<< SEARCH\n<p>Old text<\/p>\n=======\n/, 'markers spelled out line by line');
   assert.match(r.seen[1].at(-1).content, /had no code in it[\s\S]*<<<<<<< SEARCH\n/);
   assert.ok(r.events.some((e) => e.type === 'nudge' && /markers but no code/.test(e.text)));
-  assert.equal(await r.read('index.html'), PAGE.replace('#4CAF50', 'green'));
+  assert.equal(await r.read('index.html'), BIG.replace('#4CAF50', 'green'));
   assert.equal(r.seen.length, 2);
 });
 
 test('edit request: a copied example is never applied', async () => {
-  const page = PAGE.replace('<h1>Button Example</h1>', '<p>Old text</p>');
+  const page = BIG.replace('<h1>Button Example</h1>', '<p>Old text</p>');
   const turns = ['index.html\n<<<<<<< SEARCH\n<p>Old text</p>\n=======\n<p>New text</p>\n>>>>>>> REPLACE', 'index.html\n<<<<<<< SEARCH\n  background-color: #4CAF50;\n=======\n  background-color: green;\n>>>>>>> REPLACE'];
   turns.prompt = 'Make the button green';
   const r = await chat(turns, { files: { 'index.html': page } });

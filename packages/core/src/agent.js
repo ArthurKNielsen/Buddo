@@ -151,13 +151,19 @@ export async function runAgent({
   const editHow = (path) =>
     `Reply with only the change, each marker on its own line. Example (changes <p>Old text</p> to <p>New text</p>):\n\n${path}\n<<<<<<< SEARCH\n<p>Old text</p>\n=======\n<p>New text</p>\n>>>>>>> REPLACE\n\nCopy the SEARCH lines exactly from ${path}. Don't rewrite the whole file.`;
 
+  // Small files are rewritten whole: it's one short reply, while tiny models (0.5B) copy the find/replace
+  // example instead of using it, which cost three calls and no change on a Chromebook.
+  const SMALL_FILE = 2000;
+  const wholeFile = (path) => `Reply with the COMPLETE updated ${path} in one code block.`;
+  const askEdit = (path, content) => (content.length < SMALL_FILE ? wholeFile(path) : editHow(path));
+
   // Small models can't open files themselves: for an edit request, show them the current page.
   if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
     const msg = lastUserMsg();
     if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
       const t = await readTarget();
       if (t && t.content.length < 7000) {
-        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${editHow(t.path)}`;
+        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${askEdit(t.path, t.content)}`;
         onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
       }
     }
@@ -326,11 +332,11 @@ export async function runAgent({
           messages.push({
             role: 'user',
             content:
-              nudges === 1
+              nudges === 1 && t.content.length >= SMALL_FILE
                 ? `That edit had no code in it. Write the lines to change.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${editHow(t.path)}`
                 : `Please write the COMPLETE updated ${t.path} (the whole file) in one code block.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}`,
           });
-          onEvent({ type: 'nudge', text: nudges === 1 ? 'The model wrote the edit markers but no code — showed it an example' : `Asked the model for the whole ${t.path}` });
+          onEvent({ type: 'nudge', text: nudges === 1 && t.content.length >= SMALL_FILE ? 'The model wrote the edit markers but no code — showed it an example' : `Asked the model for the whole ${t.path}` });
           continue;
         }
       }
@@ -391,14 +397,15 @@ export async function runAgent({
         const now = target && (await workspace.read(target.path).catch(() => null));
         if (!saved.length && failed.length && now !== null && target && nudges < MAX_NUDGES) {
           nudges++;
+          const retry = nudges === 1 && now.length >= SMALL_FILE;
           messages.push({
             role: 'user',
             content:
-              nudges === 1
+              retry
                 ? `That edit didn't apply: ${failed[0]}\n\n[Current ${target.path}]\n${fence(target.path, now)}\n${editHow(target.path)}`
                 : `Please write the COMPLETE updated ${target.path} (the whole file) in one code block.\n\n[Current ${target.path}]\n${fence(target.path, now)}`,
           });
-          onEvent({ type: 'nudge', text: nudges === 1 ? `The model's edit didn't match ${target.path} — asked it to try again` : `Asked the model for the whole ${target.path}` });
+          onEvent({ type: 'nudge', text: retry ? `The model's edit didn't match ${target.path} — asked it to try again` : `Asked the model for the whole ${target.path}` });
           continue;
         }
         if (failed.length) onEvent({ type: 'error', error: failed[0] });

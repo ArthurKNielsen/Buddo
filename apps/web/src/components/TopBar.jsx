@@ -1,7 +1,7 @@
 import { PanelLeftOpen, PanelRight, FolderTree, GitCompare, TerminalSquare, ListTodo, Eye, ChevronDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useStore } from '../lib/store.js';
-import { currentModel } from '../lib/engine.js';
+import { currentModel, shortModel, precisionOf } from '../lib/engine.js';
 
 const TABS = [
   { id: 'files', icon: FolderTree, label: 'Files' },
@@ -21,6 +21,8 @@ export default function TopBar() {
   const todos = session?.todos || [];
   const todoOpen = todos.filter((t) => t.status !== 'done').length;
   const model = currentModel(settings);
+  const webllm = useStore((s) => s.webllm);
+  const loadedPrecision = settings.engine === 'webllm' && webllm?.loaded && shortModel(webllm.loaded) === shortModel(model) ? precisionOf(webllm.loaded) : '';
   const status = settings.engine === 'webllm' ? 'ok' : engine.status === 'ok' ? 'ok' : engine.status === 'checking' ? 'wait' : 'down';
 
   return (
@@ -35,7 +37,12 @@ export default function TopBar() {
 
       <motion.button className="model-pill" whileTap={{ scale: 0.97 }} onClick={() => setUI({ models: true })} title="Switch model">
         <span className={`dot ${status}`} />
-        <span className="truncate mono">{model ? model.replace(/-q4f16_1-MLC$/, '') : 'Select a model'}</span>
+        <span className="truncate mono">{model ? shortModel(model) : 'Select a model'}</span>
+        {loadedPrecision && (
+          <span className={'prec-chip ' + loadedPrecision} title={loadedPrecision === 'f32' ? 'Running the safe full-precision (f32) version' : 'Running the fast half-precision (f16) version'}>
+            {loadedPrecision}
+          </span>
+        )}
         <ChevronDown size={14} className="faint" />
       </motion.button>
 

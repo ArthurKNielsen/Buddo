@@ -83,6 +83,9 @@ export async function webllmPrecision(settings = useStore.getState().settings) {
   if (isChromebook()) return 'f32';
   return (await gpuSupportsF16()) ? 'f16' : 'f32';
 }
+/** "f32" / "f16" for a WebLLM model id, or '' for other engines. */
+export const precisionOf = (id = '') => (/q4f32_1/.test(id) ? 'f32' : /q4f16_1/.test(id) ? 'f16' : '');
+export const shortModel = (id = '') => id.replace(/-q4f(16|32)_1-MLC$/, '');
 const withPrecision = (model, precision) => (precision === 'f32' ? model.replace('q4f16_1', 'q4f32_1') : model);
 
 export async function loadWebLLM(baseModel) {
@@ -102,7 +105,7 @@ export async function loadWebLLM(baseModel) {
       webllmEngine = await webllm.CreateMLCEngine(model, { initProgressCallback: onProgress }, { context_window_size: isPocketModel(model) ? 4096 : 8192 });
     }
     webllmLoaded = model;
-    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true } });
+    useStore.setState({ webllm: { text: 'Ready', progress: 1, ready: true, loaded: model } });
     return webllmEngine;
   })();
   try {

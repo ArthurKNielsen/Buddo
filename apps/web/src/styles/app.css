@@ -142,6 +142,9 @@
   transition: border-color 0.2s, background 0.2s;
 }
 .model-pill:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); background: var(--bg-2); }
+.prec-chip { flex: none; font: 600 10px/1 var(--mono); padding: 3px 6px; border-radius: 6px; text-transform: uppercase; letter-spacing: .03em; }
+.prec-chip.f32 { color: #34d399; background: rgba(52, 211, 153, .14); }
+.prec-chip.f16 { color: #fbbf24; background: rgba(251, 191, 36, .14); }
 .tb-tabs { display: flex; align-items: center; gap: 2px; }
 .tb-tabs .icon-btn { position: relative; }
 .tb-sep { width: 1px; height: 18px; background: var(--border-2); margin: 0 4px; }

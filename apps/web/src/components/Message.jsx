@@ -4,6 +4,7 @@ import { Brain, ChevronRight, Copy, Check, RotateCcw, AlertTriangle, Square, Pap
 import { renderMarkdown, handleCopyClick } from '../lib/markdown.js';
 import { useStore } from '../lib/store.js';
 import { retryLast } from '../lib/runner.js';
+import { shortModel, precisionOf } from '../lib/engine.js';
 import ToolCard from './ToolCard.jsx';
 import LiveCode from './LiveCode.jsx';
 import Logo from './Logo.jsx';
@@ -141,7 +142,8 @@ function Assistant({ item, sessionId, last }) {
               </button>
             )}
             <span className="faint">
-              {item.model?.replace(/-q4f16_1-MLC$/, '')}
+              {shortModel(item.model)}
+              {precisionOf(item.model) && ` · ${precisionOf(item.model)}`}
               {secs && ` · ${secs}s`}
               {item.usage?.tps ? ` · ${Math.round(item.usage.tps)} tok/s` : ''}
             </span>

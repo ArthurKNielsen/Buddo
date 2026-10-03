@@ -3,7 +3,7 @@ import { Settings, Cpu, Palette, SlidersHorizontal, Database, Info, Sun, Moon, M
 import PersonalityPanel from './PersonalityPanel.jsx';
 import SensesPanel from './SensesPanel.jsx';
 import { useStore, DEFAULT_SETTINGS } from '../lib/store.js';
-import { checkEngine } from '../lib/engine.js';
+import { checkEngine, shortModel, precisionOf } from '../lib/engine.js';
 import { MODES } from './Composer.jsx';
 import Modal from './Modal.jsx';
 import Logo from './Logo.jsx';
@@ -33,6 +33,7 @@ export default function SettingsModal() {
   const open = useStore((s) => s.ui.settings);
   const tab = useStore((s) => s.ui.settingsTab);
   const s = useStore((st) => st.settings);
+  const webllm = useStore((st) => st.webllm);
   const engine = useStore((st) => st.engine);
   const server = useStore((st) => st.server);
   const sessions = useStore((st) => st.sessions);
@@ -146,6 +147,11 @@ export default function SettingsModal() {
                     ))}
                   </div>
                   <span className="hint">If replies come out as gibberish (random symbols and Chinese characters), your GPU does fast f16 math wrong — use Safe. Auto picks Safe on Chromebooks and GPUs without f16, and switches by itself if it spots gibberish. Changing it downloads the other version once.</span>
+                  {webllm?.loaded && (
+                    <span className="hint">
+                      Loaded right now: <b>{shortModel(webllm.loaded)}</b> · <span className={'prec-chip ' + precisionOf(webllm.loaded)}>{precisionOf(webllm.loaded)}</span>
+                    </span>
+                  )}
                 </div>
               )}
               <div className="field">

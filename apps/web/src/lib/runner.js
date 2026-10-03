@@ -271,6 +271,8 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
 
   if (draft.status === 'streaming') draft.status = result.status === 'done' ? 'done' : result.status;
   draft.endedAt = Date.now();
+  // Record the build that actually ran (e.g. the q4f32 version of an in-browser model).
+  if (settings.engine === 'webllm' && S().webllm?.loaded) draft.model = S().webllm.loaded;
   draft.preparing = null;
   draft.live = null;
   for (const p of draft.parts) if (p.type === 'thinking' && !p.done) Object.assign(p, { done: true, endedAt: Date.now() });

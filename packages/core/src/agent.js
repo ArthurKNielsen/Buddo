@@ -128,6 +128,7 @@ export async function runAgent({
     let usage = null;
     let stopForTool = false;
     let announced = false;
+    let streamedSize = -1;
 
     const wire = [{ role: 'system', content: system }, ...compactForModel(messages, contextBudget)].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
@@ -154,6 +155,15 @@ export async function runAgent({
         if (prose.length > sentProse) {
           onEvent({ type: 'text', delta: prose.slice(sentProse) });
           sentProse = prose.length;
+        }
+        // Stream the code while the model is still writing it (write_file / edit_file / …).
+        if (a.call && !a.call.complete && a.call.partial) {
+          const p = a.call.partial;
+          const size = Object.values(p.args).reduce((n, v) => n + v.length, 0);
+          if (size !== streamedSize) {
+            streamedSize = size;
+            onEvent({ type: 'tool-stream', name: a.call.name, args: p.args, writing: p.writing });
+          }
         }
         if (a.call && !announced) {
           // let UIs show "preparing tool…" while the call streams in

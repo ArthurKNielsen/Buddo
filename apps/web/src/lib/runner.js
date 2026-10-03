@@ -163,12 +163,18 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           if (last()?.type === 'text') last().text += e.delta;
           else draft.parts.push({ type: 'text', text: e.delta });
           break;
+        case 'tool-stream':
+          if (!S().settings.liveCode) break;
+          if (last()?.type === 'thinking') Object.assign(last(), { done: true, endedAt: Date.now() });
+          draft.live = { name: e.name, args: e.args, writing: e.writing, startedAt: draft.live?.name === e.name ? draft.live.startedAt : Date.now() };
+          break;
         case 'tool-preparing':
           if (last()?.type === 'thinking') Object.assign(last(), { done: true, endedAt: Date.now() });
           draft.preparing = e.name;
           break;
         case 'tool-start':
           draft.preparing = null;
+          draft.live = null;
           if (last()?.type === 'thinking') Object.assign(last(), { done: true, endedAt: Date.now() });
           draft.parts.push({ type: 'tool', call: e.call, kind: e.kind, status: 'running', startedAt: Date.now() });
           break;
@@ -236,6 +242,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   if (draft.status === 'streaming') draft.status = result.status === 'done' ? 'done' : result.status;
   draft.endedAt = Date.now();
   draft.preparing = null;
+  draft.live = null;
   for (const p of draft.parts) if (p.type === 'thinking' && !p.done) Object.assign(p, { done: true, endedAt: Date.now() });
   flush();
   S().patchSession(sid, { history: result.messages });

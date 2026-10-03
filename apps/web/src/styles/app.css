@@ -690,3 +690,16 @@ button.model-row:hover { border-color: var(--border-2); transform: translateY(-1
 .knows b { font-size: 22px; }
 textarea.input { height: auto; min-height: 70px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
 @media (max-width: 640px) { .vibe-grid { grid-template-columns: 1fr 1fr; } }
+
+/* ───────── Live code (watch Buddo type) ───────── */
+.live-code { border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 0 0 3px var(--accent-soft), 0 12px 40px -24px var(--accent-glow); }
+.live-code::before { content: ''; display: block; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: scan 1.2s linear infinite; }
+.live-body { max-height: 360px; border-top: 1px solid var(--border); }
+.live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--danger); }
+.live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); animation: blink 1s infinite; }
+.live-caret { display: inline-block; width: 8px; height: 15px; margin-left: 1px; vertical-align: -3px; background: var(--accent); border-radius: 1px; animation: blink 0.9s steps(1) infinite; box-shadow: 0 0 10px var(--accent-glow); }
+.live-add .cv-line { background: var(--add-bg); }
+.live-add .diff-sign { color: var(--success); }
+.live-del .cv-line { background: var(--del-bg); }
+.live-del .diff-sign { color: var(--danger); }
+.live-code .cv-line:last-child { background: color-mix(in srgb, var(--accent) 9%, transparent); }

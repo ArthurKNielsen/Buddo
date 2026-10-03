@@ -562,6 +562,9 @@ function renderer() {
   let label = verb;
   const t0 = Date.now();
   let thinkingChars = 0;
+  // Live code: print each finished line while the model is still writing the file.
+  let live = null; // { key, printed }
+  let streamedCall = false;
 
   const startSpinner = (text = verb) => {
     label = text;
@@ -638,9 +641,35 @@ function renderer() {
           flush();
           startSpinner(e.name === 'write_file' || e.name === 'edit_file' ? 'Writing code' : 'Working');
           break;
+        case 'tool-stream': {
+          const code = e.name === 'write_file' ? e.args.content : e.name === 'edit_file' ? e.args.new : null;
+          if (code === undefined || code === null || quiet) break;
+          const key = `${e.name}:${e.args.path}:${e.name === 'edit_file' && e.writing !== 'new' ? 'old' : 'new'}`;
+          if (live?.key !== key) {
+            if (e.name === 'edit_file' && e.writing !== 'new') break; // only show the new code for edits
+            stopSpinner();
+            console.log(`\n${C.violet('✎')} ${C.bold(e.name === 'write_file' ? 'Writing' : 'Editing')} ${e.args.path || ''} ${C.dim('(live)')}`);
+            live = { key, printed: 0 };
+          }
+          const lines = code.split('\n');
+          // Only print lines that are complete (the last one may still be growing).
+          for (; live.printed < lines.length - 1; live.printed++) {
+            stopSpinner();
+            console.log(`  ${C.dim(String(live.printed + 1).padStart(4) + ' │')} ${C.gray(lines[live.printed].slice(0, 160))}`);
+          }
+          startSpinner('Writing code');
+          break;
+        }
         case 'tool-start': {
           flush();
           stopSpinner();
+          streamedCall = !!live && (e.call.name === 'write_file' || e.call.name === 'edit_file');
+          if (live) {
+            const code = e.call.name === 'write_file' ? e.call.args.content : e.call.args.new;
+            const lines = (code || '').split('\n');
+            for (; live.printed < lines.length; live.printed++) console.log(`  ${C.dim(String(live.printed + 1).padStart(4) + ' │')} ${C.gray(lines[live.printed].slice(0, 160))}`);
+            live = null;
+          }
           const name = toolNames[e.call.name] || e.call.name;
           console.log(`\n${C.green('⏺')} ${C.bold(name)}${C.dim('(')}${describeCall(e.call)}${C.dim(')')}`);
           break;
@@ -652,7 +681,8 @@ function renderer() {
           else if (d?.type === 'diff') {
             const s = diffStats(diffLines(d.before || '', d.after));
             console.log(`  ${C.dim('⎿')} ${d.created ? 'Created' : 'Updated'} ${C.bold(d.path)} with ${C.green('+' + s.added)} ${C.red('-' + s.removed)}`);
-            printDiff(d.before || '', d.after, 14);
+            // New files were already shown line by line while they were being written.
+            if (!(streamedCall && d.created)) printDiff(d.before || '', d.after, 14);
           } else if (d?.type === 'terminal') {
             const lines = (d.output || '').trimEnd().split('\n').filter(Boolean);
             lines.slice(-8).forEach((l, i) => console.log(`  ${C.dim(i === 0 ? '⎿' : ' ')}  ${C.gray(l.slice(0, 200))}`));

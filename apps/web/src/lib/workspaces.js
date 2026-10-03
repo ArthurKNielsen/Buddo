@@ -258,11 +258,15 @@ export function sandboxWorkspace(name = 'sandbox') {
 }
 
 // ── Live preview: inline local CSS/JS into index.html so it renders in an iframe ──
-export async function buildPreview(ws, entry) {
-  const htmls = await ws.glob('**/*.html').catch(() => []);
+export async function buildPreview(ws, entry, overrides = {}) {
+  // `overrides` = files Buddo is writing right now (shown live before they hit the disk).
+  const norm = (p) => p.replace(/^\.?\/+/, '');
+  const live = Object.fromEntries(Object.entries(overrides).map(([k, v]) => [norm(k), v]));
+  const read = (p) => (norm(p) in live ? Promise.resolve(live[norm(p)]) : ws.read(p));
+  const htmls = [...new Set([...Object.keys(live).filter((k) => /\.html?$/i.test(k)), ...(await ws.glob('**/*.html').catch(() => []))])];
   if (!htmls.length) return null;
   const pick = [entry, 'index.html', 'public/index.html', 'src/index.html', 'dist/index.html'].find((c) => c && htmls.includes(c)) || htmls[0];
-  const html0 = await ws.read(pick).catch(() => null);
+  const html0 = await read(pick).catch(() => null);
   if (html0 === null) return null;
   let html = html0;
   const base = pick.includes('/') ? pick.slice(0, pick.lastIndexOf('/') + 1) : '';
@@ -288,7 +292,7 @@ export async function buildPreview(ws, entry) {
     const p = href && resolvePath(href);
     if (!p) return tag;
     try {
-      return `<style>/* ${p} */\n${await ws.read(p)}\n</style>`;
+      return `<style>/* ${p} */\n${await read(p)}\n</style>`;
     } catch {
       return tag;
     }
@@ -297,7 +301,7 @@ export async function buildPreview(ws, entry) {
     const p = resolvePath(src);
     if (!p) return tag;
     try {
-      const code = (await ws.read(p)).replace(/<\/script>/gi, '<\\/script>');
+      const code = (await read(p)).replace(/<\/script>/gi, '<\\/script>');
       return `<script${pre}${post}>/* ${p} */\n${code}\n</script>`;
     } catch {
       return tag;

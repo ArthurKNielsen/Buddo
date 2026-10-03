@@ -162,6 +162,13 @@ export default function SettingsModal() {
               </div>
               <div className="field row" style={{ flexDirection: 'row' }}>
                 <div style={{ flex: 1 }}>
+                  <label>Watch Buddo type</label>
+                  <div className="hint">Show code live, character by character, while Buddo writes it</div>
+                </div>
+                <Toggle on={s.liveCode} onChange={(v) => setSettings({ liveCode: v })} />
+              </div>
+              <div className="field row" style={{ flexDirection: 'row' }}>
+                <div style={{ flex: 1 }}>
                   <label>Show thinking</label>
                   <div className="hint">Display the reasoning of thinking models (Qwen 3, gpt-oss…)</div>
                 </div>

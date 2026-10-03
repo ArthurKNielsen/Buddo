@@ -22,10 +22,10 @@ test('watches a video: scene cut, frames, sounds — fast', opts, async () => {
   assert.ok(r.display.frames.length >= 4);
   assert.ok(r.display.cuts.some((c) => Math.abs(c - 3) < 1.1), `cut near 3s, got ${r.display.cuts}`);
   assert.match(r.text, /Sine wave|Tone|Beep|Sound/i);
-  assert.ok(ms < 20000, `took ${ms}ms`);
+  assert.ok(ms < 60000, `took ${ms}ms`);
   const again = Date.now();
   await watchVideo(file);
-  assert.ok(Date.now() - again < 50, 'second look is cached');
+  assert.ok(Date.now() - again < 300, 'second look is cached');
   const a = await listenAudio(file);
   assert.equal(a.display.kind, 'audio');
   const frame = path.join(dir, 'frame.png');

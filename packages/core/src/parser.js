@@ -56,6 +56,18 @@ function findJsonToolCall(text) {
   return { name, complete: true, start: s, end: e + 12, args };
 }
 
+/**
+ * Best-effort args of a tool call that is still streaming in, so UIs can show the code as it's written.
+ * Drops a half-written closing tag at the very end (e.g. "</cont").
+ */
+export function parsePartial(name, body) {
+  const cleaned = body.replace(/<\/?[a-z_:]*$/i, '');
+  const args = parseArgs(name, cleaned);
+  const open = [...cleaned.matchAll(/<([a-z_]+)>/g)].map((x) => x[1]);
+  const writing = open.filter((p) => !cleaned.includes(`</${p}>`)).pop();
+  return { args, writing };
+}
+
 /** Find the first tool call in `text`. */
 export function findToolCall(text) {
   const m = OPEN_RE.exec(text);
@@ -66,7 +78,7 @@ export function findToolCall(text) {
   const close = `</tool:${name}>`;
   const bodyStart = m.index + m[0].length;
   const end = text.indexOf(close, bodyStart);
-  if (end === -1) return { name, complete: false, start: m.index };
+  if (end === -1) return { name, complete: false, start: m.index, partial: parsePartial(name, text.slice(bodyStart)) };
   return {
     name,
     complete: true,

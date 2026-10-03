@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   openaiUrl: 'http://localhost:1234/v1',
   model: '',
   webllmModel: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC',
+  liveCode: true, // show code while Buddo is writing it
   lite: 'auto', // auto | on | off — short prompt + small context for tiny models
   mode: 'ask',
   ctx: 16384,

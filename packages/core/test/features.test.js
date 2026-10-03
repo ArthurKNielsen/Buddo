@@ -79,3 +79,23 @@ test('remember tool saves facts through the callback (and is hidden when learnin
   assert.deepEqual(saved, ['Is 15 and learning React']);
   assert.ok(!buildSystemPrompt({ workspace: ws, profile: { learn: false } }).includes('### remember'));
 });
+
+test('streams code while the model is still writing it', async () => {
+  const ws = { name: 'w', capabilities: { exec: false }, list: async () => [], read: async () => { throw new Error('nope'); }, write: async () => {} };
+  const call = '<tool:write_file>\n<path>app.js</path>\n<content>\nconst a = 1;\nconst b = 2;\nconsole.log(a + b);\n</content>\n</tool:write_file>';
+  let i = 0;
+  const provider = {
+    async *stream() {
+      if (i++ > 0) return yield { type: 'text', text: 'Done.' };
+      for (let k = 0; k < call.length; k += 5) yield { type: 'text', text: call.slice(k, k + 5) };
+    },
+  };
+  const live = [];
+  await runAgent({ provider, model: 'm', workspace: ws, messages: [{ role: 'user', content: 'go' }], mode: 'yolo', onEvent: (e) => e.type === 'tool-stream' && live.push(e) });
+  const contents = live.filter((e) => e.args.content !== undefined).map((e) => e.args.content);
+  assert.ok(contents.length > 5, 'many live updates');
+  assert.ok(contents.every((c, k) => k === 0 || c.length >= contents[k - 1].length), 'content only grows');
+  assert.ok(!contents.some((c) => c.includes('</')), 'half-written closing tags are hidden');
+  assert.equal(contents.at(-1), 'const a = 1;\nconst b = 2;\nconsole.log(a + b);');
+  assert.equal(live.at(-1).args.path, 'app.js');
+});

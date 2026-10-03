@@ -5,6 +5,7 @@ import { renderMarkdown, handleCopyClick } from '../lib/markdown.js';
 import { useStore } from '../lib/store.js';
 import { retryLast } from '../lib/runner.js';
 import ToolCard from './ToolCard.jsx';
+import LiveCode from './LiveCode.jsx';
 import Logo from './Logo.jsx';
 
 const enter = {
@@ -114,7 +115,7 @@ function Assistant({ item, sessionId, last }) {
             <ToolCard key={p.call.id} part={p} sessionId={sessionId} />
           ),
         )}
-        {showWorking && <Working item={item} />}
+        {running && item.live ? <LiveCode live={item.live} /> : showWorking && <Working item={item} />}
         {item.status === 'error' && (
           <motion.div className="msg-error" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             <AlertTriangle size={15} />

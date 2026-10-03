@@ -7,7 +7,7 @@ import { buildSystemPrompt } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
-import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace } from './edits.js';
+import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits } from './edits.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -145,6 +145,19 @@ export async function runAgent({
     const content = path ? await workspace.read(path).catch(() => null) : null;
     return content === null ? null : { path, content };
   };
+  /** The page plus the stylesheets and scripts it links: the files an edit to "the site" may touch. */
+  const readEditFiles = async () => {
+    const t = await readTarget();
+    if (!t) return [];
+    const dir = t.path.includes('/') ? t.path.slice(0, t.path.lastIndexOf('/') + 1) : '';
+    const out = [t];
+    for (const rel of linkedFiles(t.content)) {
+      const p = (dir + rel).replace(/^\.\//, '');
+      const content = await workspace.read(p).catch(() => null);
+      if (content !== null) out.push({ path: p, content });
+    }
+    return out;
+  };
   const fence = (path, content) => `\`\`\`${path.split('.').pop()}\n${content.replace(/\n$/, '')}\n\`\`\``;
   // How to answer an edit. Spelled out line by line: tiny models copy the shape they see, so a one-line
   // description ("a <<<<<<< SEARCH / ======= / >>>>>>> REPLACE block") came back word for word, with no code.
@@ -156,17 +169,33 @@ export async function runAgent({
   const SMALL_FILE = 2000;
   // Edits ask for just the changed lines: tiny models answer that naturally, and Buddo finds where they go
   // (mergeChangedLines). If it can't tell, it asks for the whole file.
-  const askEdit = (path) =>
-    `Reply with ONLY the lines you change, written the new way, in one code block. Don't write the rest of ${path}. To add something new, also include the line just above where it goes.`;
+  const askEdit = (paths) =>
+    `Change only what was asked. Reply with ONLY the lines you change, written the new way: the file name on its own line, then a code block with just those lines. Don't rewrite whole files${paths.length > 1 ? ` (the project has ${paths.join(', ')})` : ''}. To add something new, also include the line just above where it goes.`;
+  const showFiles = (fs) => fs.map((f) => `[Current ${f.path}]\n${fence(f.path, f.content)}`).join('\n');
+  /** The files for an edit, small enough to show a small model (the page first). */
+  const editFilesToShow = async (budget = 9000) => {
+    const out = [];
+    let used = 0;
+    for (const f of await readEditFiles()) {
+      if (used + f.content.length > budget) continue;
+      out.push(f);
+      used += f.content.length;
+    }
+    return out;
+  };
+  // Files written in this run (a new build) can be rewritten freely; files that were already there get edits.
+  const createdHere = new Set();
+  const rewriteWarned = new Set();
+  const editRequest = () => !isNewBuild(askedText()) && !asksToRemove(askedText()) && looksLikeEdit(askedText());
 
   // Small models can't open files themselves: for an edit request, show them the current page.
   if (lite && autoSaveCode && mode !== 'plan' && workspace.write) {
     const msg = lastUserMsg();
     if (msg && msg === messages[messages.length - 1] && looksLikeEdit(msg.content) && !msg.content.includes('<file path=')) {
-      const t = await readTarget();
-      if (t && t.content.length < 7000) {
-        msg.content += `\n\n[Current ${t.path}]\n${fence(t.path, t.content)}\n${askEdit(t.path)}`;
-        onEvent({ type: 'nudge', text: `Showed the model the current ${t.path} to edit` });
+      const shown = await editFilesToShow();
+      if (shown.length && shown[0].content.length < 7000) {
+        msg.content += `\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`;
+        onEvent({ type: 'nudge', text: `Showed the model the current ${shown.map((f) => f.path).join(', ')} to edit` });
       }
     }
   }
@@ -183,6 +212,18 @@ export async function runAgent({
       if (answer === 'always') alwaysAllowed.add(call.name);
       if (answer === 'deny') return { ok: false, output: 'The user denied this action. Ask what they would like instead, or try a different approach.', denied: true };
     }
+    // Changing an existing file: ask once for just the lines that change instead of a whole new file.
+    if (call.name === 'write_file' && !call.auto && editRequest()) {
+      const path = String(call.args?.path || '').trim();
+      const before = path && !createdHere.has(path) ? await workspace.read(path).catch(() => null) : null;
+      if (before !== null && before.trim() && !rewriteWarned.has(path) && rewriteAsEdits(before, call.args.content ?? '')?.length !== 0) {
+        rewriteWarned.add(path);
+        return {
+          ok: false,
+          output: `${path} already exists, so don't rewrite all of it. Change only the lines that need to change with edit_file (one call per spot; copy <old> exactly from the file). If the whole file really must be replaced, call write_file again.`,
+        };
+      }
+    }
     const result = await executeTool(call, {
       workspace,
       onChange: callbacks.onChange,
@@ -192,6 +233,7 @@ export async function runAgent({
       onCommandData: callbacks.onCommandData,
     });
     if (result.ok && (call.name === 'write_file' || call.name === 'edit_file')) wroteFiles = true;
+    if (result.ok && call.name === 'write_file' && result.display?.created) createdHere.add(String(call.args.path).trim());
     return result;
   };
   let lastSig = '';
@@ -346,14 +388,13 @@ export async function runAgent({
       // Asked for code, got only words (and not a question back): ask for the code.
       if (canSave && nudges < MAX_NUDGES && wantsCode && !hasCode && !/\?\s*$/.test(text) && text.length < 1500) {
         nudges++;
-        const t = await readTarget();
+        const shown = isNewBuild(askedText()) ? [] : await editFilesToShow();
         messages.push({ role: 'assistant', content: text });
         messages.push({
           role: 'user',
-          content:
-            t && !isNewBuild(askedText())
-              ? `Write the code now: the COMPLETE updated ${t.path} in one code block.\n\n[Current ${t.path}]\n${fence(t.path, t.content)}`
-              : 'Write the code now: put the file name on its own line, then the complete code in a fenced code block.',
+          content: shown.length
+            ? `Write the change now.\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`
+            : 'Write the code now: put the file name on its own line, then the complete code in a fenced code block.',
         });
         onEvent({ type: 'nudge', text: 'The model only answered in words — asked it for the code' });
         continue;
@@ -418,24 +459,59 @@ export async function runAgent({
       // The model answered with plain code blocks instead of tool calls → save them as files.
       if (canSave) {
         const files = extractCodeFiles(text || a.thinking, { wantsCode }).filter((f) => wantsCode || !f.inferred);
-        const target = files.length ? await readTarget() : null;
+        const editFiles = files.length ? await readEditFiles() : [];
+        const [target, ...related] = editFiles;
         const { writes, needFull } = await planCodeSave(files, {
           target,
+          related,
           edit: !!target && !isNewBuild(askedText()),
+          removing: asksToRemove(askedText()),
           read: (p) => workspace.read(p),
         });
-        // Only a snippet of the page came back: ask once for the whole file (with the current one attached).
+        // Buddo couldn't tell where the lines go (or the model left parts out): ask again for just the
+        // changed lines with a line of context; only as a last resort for the whole file (still saved as line edits).
         if (needFull && !writes.length && target && nudges < MAX_NUDGES) {
           nudges++;
+          const shown = editFiles.filter((f) => f.content.length < 9000);
           messages.push({
             role: 'user',
-            content: `Please write the COMPLETE updated ${target.path} (the whole file, not just the changed part) in one code block.\n\n[Current ${target.path}]\n${fence(target.path, target.content)}`,
+            content:
+              nudges === 1
+                ? `I couldn't tell where those lines go. Write them again with one unchanged line above and below each change, under the file name. Never leave parts out with "..." comments.\n\n${showFiles(shown)}\n${askEdit(shown.map((f) => f.path))}`
+                : `Please write the COMPLETE updated ${target.path} (the whole file, nothing left out) in one code block.\n\n${showFiles([target])}`,
           });
-          onEvent({ type: 'nudge', text: `The model sent only part of ${target.path} — asked for the whole file` });
+          onEvent({ type: 'nudge', text: nudges === 1 ? `Couldn't place the model's lines in ${target.path} — asked it to show where they go` : `Asked the model for the whole ${target.path}` });
           continue;
         }
         const saved = [];
         for (const f of writes.slice(0, 12)) {
+          // A rewrite of an existing file: apply just the lines it changes, one edit per spot.
+          if (f.edits?.length) {
+            let ok = true;
+            let denied = false;
+            for (const e of f.edits) {
+              const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'edit_file', args: { path: f.path, old: e.old, new: e.new }, auto: true, merged: true };
+              onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+              const result = await perform(call, TOOL_MAP.edit_file);
+              if (!result) {
+                onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
+                onEvent({ type: 'stopped' });
+                return { messages, status: 'stopped' };
+              }
+              onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
+              if (!result.ok) {
+                ok = false;
+                denied = !!result.denied;
+                break;
+              }
+            }
+            if (denied) continue;
+            if (ok) {
+              saved.push(`${f.path} (edited)`);
+              continue;
+            }
+            f.edits = null; // fall back to saving the whole file below
+          }
           let call = f.edit
             ? { id: `t${Date.now().toString(36)}${id++}`, name: 'edit_file', args: { path: f.path, old: f.edit.old, new: f.edit.new }, auto: true, merged: true }
             : { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true, merged: !!f.merged };

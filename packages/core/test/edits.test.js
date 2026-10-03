@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { mergeCss, mergeCssIntoHtml, planCodeSave, looksLikeEdit, isNewBuild, sniffLang, extractCodeFiles, asksForCode, runAgent, parseFindReplace } from '../src/index.js';
+import { mergeCss, mergeCssIntoHtml, planCodeSave, rewriteAsEdits, hasPlaceholders, looksLikeEdit, isNewBuild, sniffLang, extractCodeFiles, asksForCode, runAgent, parseFindReplace } from '../src/index.js';
 import { createNodeWorkspace } from '../src/node-workspace.js';
 
 const PAGE = `<!DOCTYPE html>
@@ -108,13 +108,17 @@ test('edit request: a JS snippet is spliced into the page where it belongs (one 
   await assert.rejects(r.read('script.js'));
 });
 
-test('edit request: a snippet that could go in several places → Buddo asks for the whole file', async () => {
+test('edit request: a snippet that could go in several places → asked where it goes; a whole page back still lands as a line edit', async () => {
   const fixed = PAGE.replace('<h1>Button Example</h1>', '<h1>Buttons</h1>');
   const turns = ['```html\n<p>Some new paragraph</p>\n```', `\`\`\`html\n${fixed}\`\`\``];
   turns.prompt = 'Change the text';
   const r = await chat(turns, { files: { 'index.html': PAGE } });
-  assert.equal(r.events.filter((e) => e.type === 'nudge' && /only part/.test(e.text)).length, 1);
+  assert.equal(r.events.filter((e) => e.type === 'nudge' && /Couldn't place/.test(e.text)).length, 1);
+  assert.match(r.seen[1].at(-1).content, /one unchanged line above and below/);
   assert.equal(await r.read('index.html'), fixed);
+  const writes = r.events.filter((e) => e.type === 'tool-start');
+  assert.deepEqual(writes.map((e) => e.call.name), ['edit_file']);
+  assert.equal(writes[0].call.args.new, '<h1>Buttons</h1>');
 });
 
 test('Llama JSON tool call writes the file', async () => {
@@ -216,4 +220,133 @@ test('edit request: a copied example is never applied', async () => {
   const r = await chat(turns, { files: { 'index.html': page } });
   assert.match(r.seen[1].at(-1).content, /That was the example/);
   assert.equal(await r.read('index.html'), page.replace('#4CAF50', 'green'), 'only the real edit landed');
+});
+
+// ── A coffee site in three files: edits touch only the lines they need ──
+const COFFEE_HTML = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Bean There</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header><h1>Bean There</h1><nav><a href="#menu">Menu</a></nav></header>
+  <section id="menu">
+    <h2>Menu</h2>
+    <ul><li>Espresso</li><li>Latte</li><li>Cappuccino</li></ul>
+  </section>
+  <button id="order">Order now</button>
+  <script src="script.js"></script>
+</body>
+</html>
+`;
+const COFFEE_CSS = `body {
+  margin: 0;
+  font-family: Georgia, serif;
+  color: #3b2a20;
+  background: #f6efe6;
+}
+
+header {
+  padding: 24px;
+  background: #3b2a20;
+  color: #f6efe6;
+}
+
+#order {
+  padding: 12px 20px;
+  border-radius: 8px;
+}
+`;
+const COFFEE_JS = `const order = document.getElementById('order');
+order.addEventListener('click', () => {
+  alert('Thanks! Your coffee is brewing.');
+});
+`;
+const COFFEE = { 'index.html': COFFEE_HTML, 'styles.css': COFFEE_CSS, 'script.js': COFFEE_JS };
+
+test('rewriteAsEdits: only the changed lines, each old part unique', () => {
+  assert.deepEqual(rewriteAsEdits(COFFEE_CSS, COFFEE_CSS), []);
+  const one = rewriteAsEdits(COFFEE_CSS, COFFEE_CSS.replace('color: #3b2a20;', 'color: green;'));
+  assert.deepEqual(one, [{ old: '  color: #3b2a20;', new: '  color: green;' }]);
+  const add = rewriteAsEdits(COFFEE_JS, COFFEE_JS.replace("  alert('Thanks! Your coffee is brewing.');", "  alert('Thanks! Your coffee is brewing.');\n  order.disabled = true;"));
+  assert.equal(add.length, 1);
+  assert.ok(COFFEE_JS.includes(add[0].old));
+  assert.match(add[0].new, /order\.disabled = true;/);
+  assert.ok(hasPlaceholders('body {\n  color: green;\n}\n/* ... rest of the styles */'));
+  assert.ok(!hasPlaceholders('const all = [...items];'));
+});
+
+test('coffee site: "make the text green" sees every file and edits only the CSS line', async () => {
+  const turns = ['styles.css\n```css\nbody {\n  color: green;\n}\n```'];
+  turns.prompt = 'make the text green';
+  const r = await chat(turns, { files: COFFEE });
+  assert.equal(r.res.status, 'done');
+  const shown = r.seen[0].at(-1).content;
+  for (const f of ['index.html', 'styles.css', 'script.js']) assert.match(shown, new RegExp(`\\[Current ${f.replace('.', '\\.')}\\]`), `${f} shown to the model`);
+  assert.equal(await r.read('styles.css'), COFFEE_CSS.replace('color: #3b2a20;', 'color: green;'));
+  assert.equal(await r.read('index.html'), COFFEE_HTML);
+  assert.equal(await r.read('script.js'), COFFEE_JS);
+  const calls = r.events.filter((e) => e.type === 'tool-start').map((e) => e.call);
+  assert.deepEqual(calls.map((c) => [c.name, c.args.path]), [['edit_file', 'styles.css']]);
+  assert.equal(calls[0].args.new, '  color: green;');
+});
+
+test('coffee site: a model that rewrites every file only changes the lines that differ', async () => {
+  const css = COFFEE_CSS.replace('color: #3b2a20;', 'color: green;');
+  const turns = [`index.html\n\`\`\`html\n${COFFEE_HTML}\`\`\`\n\nstyles.css\n\`\`\`css\n${css}\`\`\`\n\nscript.js\n\`\`\`javascript\n${COFFEE_JS}\`\`\``];
+  turns.prompt = 'make the text green';
+  const r = await chat(turns, { files: COFFEE });
+  assert.equal(r.res.status, 'done');
+  const calls = r.events.filter((e) => e.type === 'tool-start').map((e) => e.call);
+  assert.deepEqual(calls.map((c) => [c.name, c.args.path]), [['edit_file', 'styles.css']], 'unchanged files are not rewritten');
+  assert.equal(await r.read('styles.css'), css);
+});
+
+test('coffee site: a bare CSS line lands on the line it replaces', async () => {
+  const turns = ['styles.css\n```css\n  font-family: Arial, sans-serif;\n```'];
+  turns.prompt = 'change the font to Arial';
+  const r = await chat(turns, { files: COFFEE });
+  assert.equal(await r.read('styles.css'), COFFEE_CSS.replace('font-family: Georgia, serif;', 'font-family: Arial, sans-serif;'));
+  assert.equal(r.seen.length, 1);
+});
+
+test('coffee site: a bare line that matches two places is not guessed', async () => {
+  const turns = ['styles.css\n```css\n  color: darkgreen;\n```'];
+  turns.prompt = 'make the text color dark green';
+  const r = await chat(turns, { files: COFFEE });
+  assert.ok(r.events.some((e) => e.type === 'nudge' && /Couldn't place/.test(e.text)));
+  assert.equal(await r.read('styles.css'), COFFEE_CSS, 'left alone rather than changing the wrong rule');
+});
+
+test('coffee site: a rewrite with "..." left in is not saved; the model is asked again', async () => {
+  const turns = ['styles.css\n```css\nbody {\n  color: green;\n}\n/* ... rest of the styles stay the same */\nheader {\n  color: white;\n}\n```', 'styles.css\n```css\n  color: green;\n```'];
+  turns.prompt = 'make the text green';
+  const r = await chat(turns, { files: COFFEE });
+  const css = await r.read('styles.css');
+  assert.match(css, /#order \{/, 'nothing was lost');
+  assert.match(css, /font-family: Georgia/);
+});
+
+test('coffee site: asking for something new writes whole files', async () => {
+  const turns = ['index.html\n```html\n<!DOCTYPE html>\n<html><body><h1>Tea Time</h1></body></html>\n```'];
+  turns.prompt = 'make me a tea shop website';
+  const r = await chat(turns, { files: COFFEE });
+  const calls = r.events.filter((e) => e.type === 'tool-start').map((e) => e.call);
+  assert.deepEqual(calls.map((c) => c.name), ['write_file']);
+  assert.match(await r.read('index.html'), /Tea Time/);
+});
+
+test('tool-calling model: rewriting an existing file for an edit is bounced once toward edit_file', async () => {
+  const css = COFFEE_CSS.replace('color: #3b2a20;', 'color: green;');
+  const turns = [
+    `<tool:write_file>\n<path>styles.css</path>\n<content>\n${css}</content>\n</tool:write_file>`,
+    '<tool:edit_file>\n<path>styles.css</path>\n<old>\n  color: #3b2a20;\n  background: #f6efe6;\n</old>\n<new>\n  color: green;\n  background: #f6efe6;\n</new>\n</tool:edit_file>',
+    'Done: the body text is green now.',
+  ];
+  turns.prompt = 'make the text green';
+  const r = await chat(turns, { files: COFFEE, lite: false });
+  assert.equal(r.res.status, 'done');
+  assert.match(r.seen[1].at(-1).content, /already exists, so don't rewrite all of it/);
+  assert.equal(await r.read('styles.css'), css);
 });

@@ -1,3 +1,5 @@
+import { diffLines } from './diff.js';
+
 // Turning a small model's code reply into the right file change.
 // Tiny models answer edit requests with fragments ("change this CSS rule", "add this to your script")
 // instead of whole files. Saving a fragment as a new file does nothing to the page, so:
@@ -99,43 +101,170 @@ export const isNewBuild = (text = '') => NEW_THING.test(text);
 /** Does this message ask to change existing code (rather than build something new)? */
 export const looksLikeEdit = (text = '') => !NEW_THING.test(text) && EDIT_WORDS.test(text);
 
+const REMOVAL = /\b(remove|delete|get rid|clean ?up|strip|drop|simplify|shorten|start over|from scratch|rewrite|redo)\b/i;
+/** Does this message ask to take things out (so a much shorter file is expected)? */
+export const asksToRemove = (text = '') => REMOVAL.test(text);
+
+// Placeholders a model writes instead of the code it left out: "...", "// rest of the code", "<!-- existing styles -->".
+const PLACEHOLDER = /^\s*(?:\.{3}|…|(?:\/\/|\/\*|#|<!--)\s*(?:(?:\.{3}|…)[^\n]*|(?:the )?(?:rest|remaining|existing|previous|same|other|unchanged|more)\b[^\n]*|keep (?:the )?(?:rest|existing|same|everything|other)\b[^\n]*|your (?:code|content|existing|other)\b[^\n]*)(?:\*\/|-->)?\s*)$/im;
+/** Did the model leave parts of the file out ("// ... rest of the code")? */
+export const hasPlaceholders = (code = '') => PLACEHOLDER.test(code);
+
+/** The local stylesheets and scripts an HTML page links to. */
+export function linkedFiles(html = '') {
+  const out = [];
+  for (const m of html.matchAll(/<link\b[^>]*\bhref=["']([^"':?#]+\.css)["']/gi)) out.push(m[1]);
+  for (const m of html.matchAll(/<script\b[^>]*\bsrc=["']([^"':?#]+\.m?js)["']/gi)) out.push(m[1]);
+  return [...new Set(out.map((p) => p.replace(/^\.?\//, '')))];
+}
+
+/**
+ * Turn a whole-file rewrite into the few line edits it really makes: [{ old, new }], each `old` unique in
+ * `before`. Returns [] when nothing changed, or null when the rewrite changes too much to split up.
+ */
+export function rewriteAsEdits(before = '', after = '', { maxHunks = 12 } = {}) {
+  if (before === after) return [];
+  const rows = diffLines(before.replace(/\n$/, ''), after.replace(/\n$/, ''));
+  const A = before.replace(/\n$/, '').split('\n');
+  // Changed regions in old-file line numbers: [start, end) of old lines, plus the new lines that replace them.
+  const regions = [];
+  let ai = 0;
+  let cur = null;
+  for (const r of rows) {
+    if (r.type === ' ') {
+      if (cur) regions.push(cur), (cur = null);
+      ai = r.a;
+      continue;
+    }
+    if (!cur) cur = { start: ai, end: ai, add: [] };
+    if (r.type === '-') cur.end = r.a, (ai = r.a);
+    else cur.add.push(r.text);
+  }
+  if (cur) regions.push(cur);
+  if (!regions.length) return [];
+  if (regions.length > maxHunks) return null;
+  const count = (text) => {
+    let n = 0;
+    for (let i = before.indexOf(text); i !== -1; i = before.indexOf(text, i + 1)) n++;
+    return n;
+  };
+  // Grow each region by context lines until its old text is unique (an insertion always gets one).
+  const hunks = regions.map((g) => {
+    let lo = g.start;
+    let hi = g.end;
+    if (lo === hi) lo > 0 ? lo-- : hi < A.length && hi++;
+    while (count(A.slice(lo, hi).join('\n')) !== 1 || !A.slice(lo, hi).join('').trim()) {
+      if (lo === 0 && hi >= A.length) return null;
+      if (lo > 0) lo--;
+      if (hi < A.length) hi++;
+    }
+    return { lo, hi, g };
+  });
+  if (hunks.includes(null)) return null;
+  // Hunks whose context touches are merged into one.
+  const merged = [];
+  for (const h of hunks) {
+    const last = merged[merged.length - 1];
+    if (last && h.lo <= last.hi) {
+      last.hi = Math.max(last.hi, h.hi);
+      last.parts.push(h.g);
+    } else merged.push({ lo: h.lo, hi: h.hi, parts: [h.g] });
+  }
+  return merged.map(({ lo, hi, parts }) => {
+    const out = [];
+    let i = lo;
+    for (const g of parts) {
+      while (i < g.start) out.push(A[i++]);
+      out.push(...g.add);
+      i = g.end;
+    }
+    while (i < hi) out.push(A[i++]);
+    return { old: A.slice(lo, hi).join('\n'), new: out.join('\n') };
+  });
+}
+
 /**
  * Decide what to do with the code files found in a reply.
  * files: from extractCodeFiles. target: { path, content } of the page being worked on (or null).
- * Returns { writes: [{ path, content, merged? }], needFull: boolean }.
+ * related: other project files the page uses ({ path, content }), where a snippet might belong instead.
+ * edit: the user asked to change existing code, so existing files only get the lines that change.
+ * Returns { writes: [{ path, content, before?, merged?, edit?, edits? }], needFull: boolean }.
  */
-export async function planCodeSave(files, { target, edit = false, read = async () => null } = {}) {
+export async function planCodeSave(files, { target, related = [], edit = false, removing = false, read = async () => null } = {}) {
   const writes = [];
   let needFull = false;
+  const known = new Map([target, ...related].filter(Boolean).map((f) => [f.path, f.content]));
+  const readKnown = async (p) => (known.has(p) ? known.get(p) : read(p).catch(() => null));
+  // Where a snippet with no file name may belong, most likely first.
+  const candidates = (lang) => {
+    const all = [target, ...related].filter(Boolean);
+    const ext = { css: /\.(css|s[ac]ss|less)$/i, js: /\.m?jsx?$/i, html: /\.html?$/i }[lang];
+    return ext ? [...all.filter((f) => ext.test(f.path)), ...all.filter((f) => !ext.test(f.path))] : all;
+  };
+  const spliceSnippet = (f, bases) => {
+    for (const base of bases) {
+      const m = mergeChangedLines(base.content, f.content);
+      if (m) return { ...f, path: base.path, before: base.content, content: m.content, merged: true, edit: { old: m.old, new: m.new } };
+    }
+    return null;
+  };
   for (const f of files) {
     // A complete page: replace the page being edited (keeps its name), or save as named.
     if (f.lang === 'html' && isFullHtml(f.content)) {
-      writes.push({ ...f, path: f.inferred && target && /\.html?$/i.test(target.path) ? target.path : f.path });
+      const path = f.inferred && target && /\.html?$/i.test(target.path) ? target.path : f.path;
+      writes.push({ ...f, path, before: edit ? await readKnown(path) : null });
       continue;
     }
-    const existing = await read(f.path).catch(() => null);
+    const existing = await readKnown(f.path);
     const fragmentOfTarget = edit && target && f.inferred;
-    if (f.lang === 'css' && (fragmentOfTarget || (existing && f.content.length < existing.length * 0.6))) {
-      // Merge into the stylesheet the page links, else into the page's own <style>.
-      const linked = target && /<link[^>]+href=["']([^"':]+\.css)["']/i.exec(target.content)?.[1];
-      const sheet = linked ? await read(linked).catch(() => null) : null;
-      if (existing && !linked) writes.push({ ...f, content: mergeCss(existing, f.content), merged: true });
-      else if (sheet !== null && linked) writes.push({ ...f, path: linked, content: mergeCss(sheet, f.content), merged: true });
-      else if (target) writes.push({ ...f, path: target.path, lang: 'html', content: mergeCssIntoHtml(target.content, f.content), merged: true });
-      continue;
-    }
-    // A snippet of an existing page/script: splice the changed lines in where they clearly belong,
-    // else ask for the whole file.
-    if (fragmentOfTarget || (existing && existing.split('\n').length > 8 && f.content.length < existing.length * 0.5)) {
-      const base = existing !== null && !fragmentOfTarget ? { path: f.path, content: existing } : target;
-      const m = base && mergeChangedLines(base.content, f.content);
-      if (m) writes.push({ ...f, path: base.path, content: m.content, merged: true, edit: { old: m.old, new: m.new } });
+    // Bare CSS lines with no selector ("color: green;"): put them where they match.
+    if (f.lang === 'css' && !f.content.includes('{') && (existing !== null || fragmentOfTarget)) {
+      const hit = spliceSnippet(f, existing !== null && !f.inferred ? [{ path: f.path, content: existing }] : candidates('css'));
+      if (hit) writes.push(hit);
       else needFull = true;
       continue;
     }
-    writes.push(f);
+    if (f.lang === 'css' && (fragmentOfTarget || (existing && f.content.length < existing.length * 0.6))) {
+      // Merge into the stylesheet the page links, else into the page's own <style>.
+      const linked = target && /<link[^>]+href=["']([^"':]+\.css)["']/i.exec(target.content)?.[1];
+      const sheet = linked ? await readKnown(linked.replace(/^\.?\//, '')) : null;
+      if (existing && !linked) writes.push({ ...f, before: existing, content: mergeCss(existing, f.content), merged: true });
+      else if (sheet !== null && linked) writes.push({ ...f, path: linked.replace(/^\.?\//, ''), before: sheet, content: mergeCss(sheet, f.content), merged: true });
+      else if (target) writes.push({ ...f, path: target.path, lang: 'html', before: target.content, content: mergeCssIntoHtml(target.content, f.content), merged: true });
+      continue;
+    }
+    // A snippet of an existing page/script: splice the changed lines in where they clearly belong,
+    // else ask again.
+    const snippet = (existing && existing.split('\n').length > 8 && f.content.length < existing.length * 0.5) || hasPlaceholders(f.content);
+    if (fragmentOfTarget || (existing && snippet)) {
+      const bases = existing !== null && !fragmentOfTarget ? [{ path: f.path, content: existing }] : candidates(f.lang);
+      const clean = { ...f, content: f.content.split('\n').filter((l) => !PLACEHOLDER.test(l)).join('\n') };
+      const hit = spliceSnippet(clean, bases);
+      if (hit) writes.push(hit);
+      else needFull = true;
+      continue;
+    }
+    writes.push({ ...f, before: edit ? existing : null });
   }
-  return { writes, needFull };
+  if (!edit) return { writes, needFull };
+  // Changing existing code: skip files that didn't change, and turn rewrites into the line edits they make.
+  const out = [];
+  for (const w of writes) {
+    if (w.before == null || w.edit) {
+      out.push(w);
+      continue;
+    }
+    if (w.before.trim() === w.content.trim()) continue;
+    // A rewrite that quietly drops most of the file is a model that forgot the rest: don't save it.
+    const shrunk = w.content.split('\n').length < w.before.split('\n').length * 0.55;
+    if (!w.merged && ((shrunk && !removing) || hasPlaceholders(w.content))) {
+      needFull = true;
+      continue;
+    }
+    const edits = rewriteAsEdits(w.before, w.content);
+    out.push(edits?.length ? { ...w, edits } : w);
+  }
+  return { writes: out, needFull };
 }
 
 // ── Find/replace edits ──

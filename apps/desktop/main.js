@@ -139,9 +139,15 @@ function downloadUpdate() {
         sendUpdate({ stage: 'download', got, total, version: want.version });
       }
     }
-    await new Promise((ok, bad) => out.end((e) => (e ? bad(e) : ok())));
+    // Wait for 'close', not just 'finish': until the file handle is really closed, Windows refuses to run the
+    // file ("spawn EBUSY").
+    await new Promise((ok, bad) => {
+      out.once('close', ok);
+      out.once('error', bad);
+      out.end();
+    });
     if (total && got < total) throw new Error('The download was cut off. It will try again later.');
-    fs.renameSync(part, file);
+    await retryBusy(() => fs.renameSync(part, file));
     ready = { version: want.version, file };
     sendUpdate({ stage: 'ready', version: want.version });
     return file;
@@ -162,21 +168,58 @@ async function installUpdate() {
   }
   const file = await downloadUpdate();
   sendUpdate({ stage: 'install' });
-  runInstaller(file, true);
+  await runInstaller(file, true);
+  quitting = true;
   setTimeout(() => app.quit(), 400);
   return { ok: true };
 }
 
 // /S: silent (no installer window). --force-run: open Buddo again afterwards.
-function runInstaller(file, reopen) {
+async function runInstaller(file, reopen) {
   if (installing) return;
   installing = true;
-  spawn(file, reopen ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+  try {
+    await retryBusy(
+      () =>
+        new Promise((ok, bad) => {
+          const child = spawn(file, reopen ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' });
+          child.once('error', bad);
+          child.once('spawn', () => {
+            child.unref();
+            ok();
+          });
+        }),
+    );
+  } catch (e) {
+    installing = false;
+    throw e;
+  }
 }
 
-// Downloaded but not installed yet: install quietly as Buddo closes.
-app.on('before-quit', () => {
-  if (ready && !installing && fs.existsSync(ready.file)) runInstaller(ready.file, false);
+/**
+ * Run fn, and again while Windows says the file is busy: antivirus (Windows Defender) scans a freshly downloaded
+ * .exe and holds it for a few seconds.
+ */
+async function retryBusy(fn, tries = 20) {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= tries || !['EBUSY', 'EPERM', 'EACCES', 'ETXTBSY'].includes(e?.code)) throw e;
+      await new Promise((r) => setTimeout(r, Math.min(3000, 250 * i)));
+    }
+  }
+}
+
+// Downloaded but not installed yet: install quietly as Buddo closes (wait for the installer to start first).
+let quitting = false;
+app.on('before-quit', (e) => {
+  if (quitting || !ready || installing || !fs.existsSync(ready.file)) return;
+  e.preventDefault();
+  quitting = true;
+  runInstaller(ready.file, false)
+    .catch((err) => console.error('[buddo] update on quit failed', err))
+    .finally(() => app.quit());
 });
 
 ipcMain.handle('buddo:update-check', () => checkForUpdate().catch((e) => ({ error: e.message, current: app.getVersion() })));

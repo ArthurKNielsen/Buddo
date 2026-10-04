@@ -42,6 +42,13 @@ useStore.subscribe((s, prev) => {
   }
 });
 
+// While an in-browser model runs, the GPU is busy with it: drop the frosted-glass blurs so the page stays smooth.
+if (typeof document !== 'undefined') {
+  useStore.subscribe((st) => {
+    document.documentElement.classList.toggle('gpu-busy', !!st.running && st.settings.engine === 'webllm' && !usesCpu(st.settings));
+  });
+}
+
 function publishWorkspace(ws) {
   workspace = ws.type === 'folder' ? withBrowserMedia(ws) : ws;
   views.clear();
@@ -251,6 +258,18 @@ export async function recheckGpu() {
 }
 
 let webllmLib = null;
+/** The model runs in a Web Worker: on the page's own thread every token froze the whole UI. */
+async function createEngine(model, config, ctx) {
+  let worker = null;
+  try {
+    worker = new Worker(new URL('./webllm-worker.js', import.meta.url), { type: 'module' });
+    return await webllmLib.CreateWebWorkerMLCEngine(worker, model, config, ctx);
+  } catch (e) {
+    worker?.terminate();
+    if (!worker) return webllmLib.CreateMLCEngine(model, config, ctx); // no module workers here (very old browser)
+    throw e;
+  }
+}
 async function loadOnGpu(model) {
   const status = (text, progress = 0) => useStore.setState({ webllm: { text, progress } });
   status('Loading WebLLM runtime…');
@@ -265,7 +284,7 @@ async function loadOnGpu(model) {
       webllmEngine.setInitProgressCallback?.(onProgress);
       await webllmEngine.reload(model, ctx);
     } else {
-      webllmEngine = await webllmLib.CreateMLCEngine(model, { initProgressCallback: onProgress }, ctx);
+      webllmEngine = await createEngine(model, { initProgressCallback: onProgress }, ctx);
     }
   } finally {
     release();

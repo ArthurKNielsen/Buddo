@@ -10,10 +10,11 @@ const browserSearch = (q, o = {}) => webSearch(q, { ...o, engines: ['wikipedia']
 
 const H = { 'x-buddo': '1' };
 
-export async function api(path, { method = 'GET', body, signal } = {}) {
+export async function api(path, { method = 'GET', body, signal, chat } = {}) {
+  const h = chat ? { ...H, 'x-buddo-chat': chat } : H;
   const r = await fetch(path, {
     method,
-    headers: body ? { ...H, 'content-type': 'application/json' } : H,
+    headers: body ? { ...h, 'content-type': 'application/json' } : h,
     body: body ? JSON.stringify(body) : undefined,
     signal,
   });
@@ -54,40 +55,52 @@ async function fetchText(url) {
   return (r.headers.get('content-type') || '').includes('html') ? htmlToText(t) : t;
 }
 
-export function serverWorkspace(info) {
+/**
+ * The local server's folder. chat: when the server keeps chats apart (info.chatFolders), the chat whose own folder
+ * this is: every request names it, and the server only lets it see that folder.
+ */
+export function serverWorkspace(info, chat = null) {
+  const call = (path, o = {}) => api(path, { ...o, chat });
+  const h = chat ? { ...H, 'x-buddo-chat': chat } : H;
   return {
-    kind: 'local folder',
+    kind: chat ? "this chat's folder" : 'local folder',
     type: 'server',
     name: info.name,
     root: info.root,
+    chatDir: chat ? `chats/${chat}` : undefined,
     capabilities: { exec: true, fetch: true },
-    list: async (path = '.', depth = 2) => (await api(`/api/fs/list?path=${encodeURIComponent(path)}&depth=${depth}`)).entries,
-    read: async (path) => (await api(`/api/fs/read?path=${encodeURIComponent(path)}`)).content,
-    write: (path, content) => api('/api/fs/write', { method: 'POST', body: { path, content } }),
-    remove: (path) => api('/api/fs/remove', { method: 'POST', body: { path } }),
+    list: async (path = '.', depth = 2) => (await call(`/api/fs/list?path=${encodeURIComponent(path)}&depth=${depth}`)).entries,
+    read: async (path) => (await call(`/api/fs/read?path=${encodeURIComponent(path)}`)).content,
+    write: (path, content) => call('/api/fs/write', { method: 'POST', body: { path, content } }),
+    remove: (path) => call('/api/fs/remove', { method: 'POST', body: { path } }),
+    // Empty this chat's folder (only a chat's own folder can be emptied).
+    clear: chat ? () => call('/api/fs/clear', { method: 'POST', body: {} }) : undefined,
     async writeBinary(path, bytes) {
-      const r = await fetch(`/api/fs/upload?path=${encodeURIComponent(path)}`, { method: 'POST', headers: H, body: bytes });
+      const r = await fetch(`/api/fs/upload?path=${encodeURIComponent(path)}`, { method: 'POST', headers: h, body: bytes });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
     },
-    search: async (pattern, opts = {}) => (await api('/api/fs/search', { method: 'POST', body: { pattern, ...opts } })).hits,
-    glob: async (pattern) => (await api('/api/fs/glob', { method: 'POST', body: { pattern } })).files,
-    fetchUrl: async (url) => (await api('/api/fetch', { method: 'POST', body: { url } })).text,
+    search: async (pattern, opts = {}) => (await call('/api/fs/search', { method: 'POST', body: { pattern, ...opts } })).hits,
+    glob: async (pattern) => (await call('/api/fs/glob', { method: 'POST', body: { pattern } })).files,
+    fetchUrl: async (url) => (await call('/api/fetch', { method: 'POST', body: { url } })).text,
     media: {
-      watch_video: (args) => api('/api/media/watch_video', { method: 'POST', body: args }),
-      listen_audio: (args) => api('/api/media/listen_audio', { method: 'POST', body: args }),
-      view_image: (args) => api('/api/media/view_image', { method: 'POST', body: args }),
-      screenshot: (args) => api('/api/media/screenshot', { method: 'POST', body: args }),
-      record_video: (args) => api('/api/media/record_video', { method: 'POST', body: args }),
-      make_video: (args) => api('/api/media/make_video', { method: 'POST', body: args }),
-      edit_video: (args) => api('/api/media/edit_video', { method: 'POST', body: args }),
+      watch_video: (args) => call('/api/media/watch_video', { method: 'POST', body: args }),
+      listen_audio: (args) => call('/api/media/listen_audio', { method: 'POST', body: args }),
+      view_image: (args) => call('/api/media/view_image', { method: 'POST', body: args }),
+      screenshot: (args) => call('/api/media/screenshot', { method: 'POST', body: args }),
+      record_video: (args) => call('/api/media/record_video', { method: 'POST', body: args }),
+      make_video: (args) => call('/api/media/make_video', { method: 'POST', body: args }),
+      edit_video: (args) => call('/api/media/edit_video', { method: 'POST', body: args }),
     },
-    webSearch: (query, o = {}) => api('/api/websearch', { method: 'POST', body: { query, ...o } }),
-    rawUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}&token=${info.rawToken}`,
-    async run(command, { cwd, timeout, onData, signal } = {}) {
+    webSearch: (query, o = {}) => call('/api/websearch', { method: 'POST', body: { query, ...o } }),
+    rawUrl: (path) => `/api/fs/raw?path=${encodeURIComponent(path)}&token=${info.rawToken}${chat ? `&chat=${encodeURIComponent(chat)}` : ''}`,
+    /** Type into a command started with an id (answers to Python's input()), or stop it. */
+    sendInput: (id, text) => call('/api/exec/input', { method: 'POST', body: { id, text } }),
+    stop: (id) => call('/api/exec/kill', { method: 'POST', body: { id } }),
+    async run(command, { cwd, timeout, onData, signal, id } = {}) {
       const r = await fetch('/api/exec', {
         method: 'POST',
-        headers: { ...H, 'content-type': 'application/json' },
-        body: JSON.stringify({ command, cwd, timeout }),
+        headers: { ...h, 'content-type': 'application/json' },
+        body: JSON.stringify({ command, cwd, timeout, id }),
         signal,
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);

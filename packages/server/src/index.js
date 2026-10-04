@@ -11,6 +11,13 @@ import { Readable } from 'node:stream';
 import { createNodeWorkspace, loadMedia, loadProfile, saveProfile } from '@buddo/core/node';
 import { normalizeProfile } from '@buddo/core';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+
+// Windows: a shell's child (python.exe) survives killing the shell, so stop the whole process tree.
+function stopProcess(c) {
+  if (process.platform === 'win32' && c.pid) spawn('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+  else c.kill('SIGTERM');
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -50,9 +57,32 @@ async function json(req) {
   return b.length ? JSON.parse(b.toString('utf8')) : {};
 }
 
-export async function startServer({ port = 4141, host = '127.0.0.1', root = process.cwd(), webDir, log = console.log, browserProvider } = {}) {
+/**
+ * chatFolders: give every chat its own folder (<root>/chats/<chat id>) that is all it can see, so one chat never
+ * reads another chat's files. true, false, or (root) => boolean to decide per opened folder (the desktop app: on
+ * for its "Buddo Projects" home folder, off for a real project the user opens, which every chat works on).
+ */
+export async function startServer({ port = 4141, host = '127.0.0.1', root = process.cwd(), webDir, log = console.log, browserProvider, chatFolders = false } = {}) {
   const wsOpts = { browserProvider };
   let workspace = createNodeWorkspace(root, wsOpts);
+  const perChat = () => (typeof chatFolders === 'function' ? !!chatFolders(workspace.root) : !!chatFolders);
+  const chatViews = new Map();
+  let shared = null;
+  /** The workspace a request may touch: its chat's own folder when chats are kept apart, else the opened folder. */
+  async function wsFor(req, url) {
+    const chat = req.headers['x-buddo-chat'] || url.searchParams.get('chat');
+    if (!perChat()) return workspace;
+    // Chats from before chats had their own folders share the folder itself, but never see the chats/ folders.
+    if (!chat) return (shared ||= createNodeWorkspace(workspace.root, { ...wsOpts, hide: ['chats'] }));
+    if (!/^[\w-]{1,64}$/.test(chat)) throw new Error('Bad chat id');
+    const dir = path.join(workspace.root, 'chats', chat);
+    if (!chatViews.has(dir)) {
+      await fs.mkdir(dir, { recursive: true });
+      chatViews.set(dir, createNodeWorkspace(dir, wsOpts));
+    }
+    return chatViews.get(dir);
+  }
+  const running = new Map(); // commands the user can type into (input()) or stop, by id
   // Token for <img>/<video> previews of workspace files (those requests can't send custom headers).
   const rawToken = crypto.randomBytes(16).toString('hex');
   // Warm up the senses in the background so the first watch/listen is instant.
@@ -66,7 +96,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
 
     if (p === '/api/health') return send(res, 200, { ok: true, app: 'buddo', version: '1.0.0', platform: process.platform });
     if (p === '/api/workspace' && req.method === 'GET') {
-      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities, home: os.homedir(), sep: path.sep, rawToken });
+      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities, home: os.homedir(), sep: path.sep, rawToken, chatFolders: perChat() });
     }
     if (p === '/api/workspace' && req.method === 'POST') {
       const { root: next } = await json(req);
@@ -74,8 +104,10 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       const st = await fs.stat(full).catch(() => null);
       if (!st?.isDirectory()) return send(res, 400, { error: `Not a folder: ${full}` });
       workspace = createNodeWorkspace(full, wsOpts);
+      chatViews.clear();
+      shared = null;
       log(`  workspace → ${full}`);
-      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities });
+      return send(res, 200, { name: workspace.name, root: workspace.root, capabilities: workspace.capabilities, chatFolders: perChat() });
     }
     if (p === '/api/workspace/create' && req.method === 'POST') {
       const { parent, name } = await json(req);
@@ -97,9 +129,19 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       const isProject = items.some((d) => ['package.json', '.git', 'pyproject.toml', 'Cargo.toml', 'go.mod'].includes(d.name));
       return send(res, 200, { path: dir, parent: path.dirname(dir) === dir ? null : path.dirname(dir), dirs, isProject, home: os.homedir() });
     }
+    // A deleted chat's own folder goes with it.
+    if (p === '/api/chat/remove' && req.method === 'POST') {
+      const { chat } = await json(req);
+      if (!perChat() || !/^[\w-]{1,64}$/.test(chat || '')) return send(res, 200, { ok: false });
+      const dir = path.join(workspace.root, 'chats', chat);
+      chatViews.delete(dir);
+      await fs.rm(dir, { recursive: true, force: true });
+      return send(res, 200, { ok: true });
+    }
+    const ws = await wsFor(req, url);
     if (p === '/api/fs/raw') {
-      const full = path.resolve(workspace.root, (q.get('path') || '').replace(/^\/+/, ''));
-      if (full !== workspace.root && !full.startsWith(workspace.root + path.sep)) return send(res, 403, { error: 'Outside workspace' });
+      const full = path.resolve(ws.root, (q.get('path') || '').replace(/^\/+/, ''));
+      if (full !== ws.root && !full.startsWith(ws.root + path.sep)) return send(res, 403, { error: 'Outside workspace' });
       const st = await fs.stat(full).catch(() => null);
       if (!st?.isFile()) return send(res, 404, { error: 'Not found' });
       const ext = path.extname(full).toLowerCase();
@@ -115,42 +157,75 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       res.writeHead(200, { 'content-type': type, 'content-length': st.size, 'accept-ranges': 'bytes' });
       return createReadStream(full).pipe(res);
     }
-    if (p === '/api/fs/list') return send(res, 200, { entries: await workspace.list(q.get('path') || '.', Number(q.get('depth')) || 2) });
-    if (p === '/api/fs/read') return send(res, 200, { content: await workspace.read(q.get('path')) });
+    if (p === '/api/fs/list') return send(res, 200, { entries: await ws.list(q.get('path') || '.', Number(q.get('depth')) || 2) });
+    if (p === '/api/fs/read') return send(res, 200, { content: await ws.read(q.get('path')) });
     if (p === '/api/fs/write' && req.method === 'POST') {
       const b = await json(req);
-      await workspace.write(b.path, b.content ?? '');
+      await ws.write(b.path, b.content ?? '');
       return send(res, 200, { ok: true });
     }
     // Videos, music and pictures dropped into the chat (raw bytes, not JSON).
     if (p === '/api/fs/upload' && req.method === 'POST') {
-      await workspace.writeBinary(q.get('path') || '', await readBody(req, 1024 * 1024 * 1024));
+      await ws.writeBinary(q.get('path') || '', await readBody(req, 1024 * 1024 * 1024));
       return send(res, 200, { ok: true });
     }
     if (p === '/api/fs/remove' && req.method === 'POST') {
-      await workspace.remove((await json(req)).path);
+      await ws.remove((await json(req)).path);
       return send(res, 200, { ok: true });
     }
     if (p === '/api/fs/search' && req.method === 'POST') {
       const b = await json(req);
-      return send(res, 200, { hits: await workspace.search(b.pattern, b) });
+      return send(res, 200, { hits: await ws.search(b.pattern, b) });
     }
-    if (p === '/api/fs/glob' && req.method === 'POST') return send(res, 200, { files: await workspace.glob((await json(req)).pattern) });
+    if (p === '/api/fs/glob' && req.method === 'POST') return send(res, 200, { files: await ws.glob((await json(req)).pattern) });
     if (p === '/api/exec' && req.method === 'POST') {
       const b = await json(req);
+      const id = typeof b.id === 'string' && /^[\w-]{1,64}$/.test(b.id) ? b.id : null;
       // Streams output as NDJSON: {type:'data', text} … {type:'exit', code, stdout, stderr}
       res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache' });
-      const r = await workspace.run(b.command, {
+      let done = false;
+      let child = null;
+      // The page went away (or the user pressed stop): don't leave the program running.
+      res.on('close', () => !done && child && stopProcess(child));
+      const r = await ws.run(b.command, {
         cwd: b.cwd,
-        timeout: Math.min(Number(b.timeout) || 120000, 600000),
+        timeout: Math.min(Number(b.timeout) || 120000, id ? 3600000 : 600000),
+        interactive: !!id,
+        onSpawn: (c) => {
+          child = c;
+          if (id) running.set(id, c);
+        },
         onData: (text) => res.write(JSON.stringify({ type: 'data', text }) + '\n'),
       });
+      done = true;
+      if (id) running.delete(id);
       res.end(JSON.stringify({ type: 'exit', ...r }) + '\n');
       return;
     }
+    // Type into a running command (answers to input() prompts), or stop it.
+    if (p === '/api/exec/input' && req.method === 'POST') {
+      const { id, text = '' } = await json(req);
+      const c = running.get(id);
+      if (!c?.stdin || c.stdin.destroyed) return send(res, 404, { error: 'That command is not running.' });
+      c.stdin.write(String(text));
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/exec/kill' && req.method === 'POST') {
+      const { id } = await json(req);
+      const c = running.get(id);
+      if (!c) return send(res, 200, { ok: false });
+      stopProcess(c);
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/fs/clear' && req.method === 'POST') {
+      // Only a chat's own folder can be emptied in one go; a real project is never wiped from here.
+      if (ws === workspace || ws === shared) return send(res, 403, { error: "Only a chat's own folder can be emptied." });
+      await ws.clear();
+      return send(res, 200, { ok: true });
+    }
     if (p === '/api/websearch' && req.method === 'POST') {
       const b = await json(req);
-      return send(res, 200, await workspace.webSearch(b.query, { source: b.source }));
+      return send(res, 200, await ws.webSearch(b.query, { source: b.source }));
     }
     if (p === '/api/profile' && req.method === 'GET') return send(res, 200, loadProfile());
     if (p === '/api/profile' && req.method === 'PUT') {
@@ -163,7 +238,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       return send(res, 200, { available: !!(m && m.browserAvailable(browserProvider)), provider: browserProvider ? browserProvider.name : 'chrome' });
     }
     if (p.startsWith('/api/media/') && req.method === 'POST' && ['watch_video', 'listen_audio', 'view_image', 'screenshot', 'record_video', 'make_video', 'edit_video'].includes(p.slice(11))) {
-      return send(res, 200, await workspace.media[p.slice(11)](await json(req)));
+      return send(res, 200, await ws.media[p.slice(11)](await json(req)));
     }
     if (p === '/api/media/status') {
       try {
@@ -206,7 +281,7 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
         fs.rm(dir, { recursive: true, force: true }).catch(() => {});
       }
     }
-    if (p === '/api/fetch' && req.method === 'POST') return send(res, 200, { text: await workspace.fetchUrl((await json(req)).url) });
+    if (p === '/api/fetch' && req.method === 'POST') return send(res, 200, { text: await ws.fetchUrl((await json(req)).url) });
     return send(res, 404, { error: 'Not found' });
   }
 

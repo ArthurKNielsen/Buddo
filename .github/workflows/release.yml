@@ -41,6 +41,8 @@ jobs:
       - name: Build Buddo-Setup.exe
         working-directory: apps/desktop
         run: |
+          # The app's version is the tag's (v1.2.0 → 1.2.0): the built-in updater compares it with the latest release.
+          npm version "${TAG#v}" --no-git-tag-version --allow-same-version
           npm install
           npm run dist:win
         env:

@@ -85,7 +85,7 @@ function useLastOutcome() {
 }
 
 /** Types new text in, keeping whatever prefix the old text shared. */
-function useTypewriter(text, speed = 20) {
+function useTypewriter(text, speed = 28) {
   const [n, setN] = useState(0);
   const prev = useRef('');
   useEffect(() => {
@@ -262,17 +262,34 @@ export default function Buddy({ ducked = false }) {
     let raf, last = performance.now(), t = 0;
     const calm = reduced();
 
+    // Fixed time step: the physics advance in equal 1/120 s steps however often the screen redraws, so Buddo moves
+    // at the same speed on a 60 Hz laptop and a 240 Hz (or faster) gaming monitor. (Clamping each frame's time to at
+    // least 4 ms made him race on 300+ Hz screens and in browsers that fire frames back to back.)
+    const STEP = 1 / 120;
+    let acc = 0;
     const frame = (now) => {
-      const dt = Math.min(0.033, Math.max(0.004, (now - last) / 1000));
+      acc += Math.min(0.1, Math.max(0, (now - last) / 1000));
       last = now;
+      let steps = 0;
+      while (acc >= STEP && steps < 12) {
+        acc -= STEP;
+        steps++;
+        tick(STEP);
+      }
+      if (steps === 12) acc = 0;
+      if (steps) draw(S, t);
+      raf = requestAnimationFrame(frame);
+    };
+
+    const tick = (dt) => {
       t += dt;
       const P = POSES[S.pose] || POSES.idle;
       let tl = P.l, tr = P.r, tbl = P.bl, tbr = P.br, ttilt = P.tilt, tsq = P.sq, tlean = 0, thx = 0;
       const br = Math.sin(t * 2.1);
       if (S.pose === 'idle') { tl += br * 5; tr -= br * 5; tsq += br * 0.012; }
-      if (S.pose === 'type') { const k = Math.sin(t * 24); tl += k * 13; tr -= k * 13; }
-      if (S.pose === 'wave') tr += Math.sin(t * 10) * 24;
-      if (S.pose === 'happy') { const k = Math.sin(t * 11); tl += k * 16; tr -= k * 16; }
+      if (S.pose === 'type') { const k = Math.sin(t * 16); tl += k * 13; tr -= k * 13; }
+      if (S.pose === 'wave') tr += Math.sin(t * 7) * 24;
+      if (S.pose === 'happy') { const k = Math.sin(t * 8); tl += k * 16; tr -= k * 16; }
       if (S.pose === 'think') ttilt += Math.sin(t * 1.3) * 2.5;
       if (S.pose === 'sleep') tsq += Math.sin(t * 1.4) * 0.035;
       if (S.pose === 'dizzy') { tlean = Math.sin(t * 5) * 9; ttilt = Math.cos(t * 5) * 8; }
@@ -343,8 +360,6 @@ export default function Buddy({ ducked = false }) {
       // never let a bad frame poison the springs
       for (const k of ['sq', 'tilt', 'lean', 'hx', 'hy', 'l', 'rr', 'bl', 'br', 'ant', 'ex', 'ey']) if (!Number.isFinite(S[k].x) || !Number.isFinite(S[k].v)) S[k] = { x: 0, v: 0 };
       if (!Number.isFinite(S.jy) || !Number.isFinite(S.vy)) { S.jy = 0; S.vy = 0; }
-      draw(S, t);
-      raf = requestAnimationFrame(frame);
     };
 
     const draw = (S, t) => {

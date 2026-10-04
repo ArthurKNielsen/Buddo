@@ -20,12 +20,16 @@ export async function loadMedia() {
   return mediaLib;
 }
 
-export function createNodeWorkspace(rootDir, { browserProvider, searxng = process.env.BUDDO_SEARXNG } = {}) {
+/** hide: top-level folders this workspace can't see or touch (the server hides other chats' folders). */
+export function createNodeWorkspace(rootDir, { browserProvider, searxng = process.env.BUDDO_SEARXNG, hide = [] } = {}) {
   const root = path.resolve(rootDir);
+  const hidden = hide.map((h) => path.join(root, h));
+  const isHidden = (full) => hidden.some((h) => full === h || full.startsWith(h + path.sep));
 
   const abs = (p = '.') => {
     const r = path.resolve(root, String(p).replace(/^\/+/, ''));
     if (r !== root && !r.startsWith(root + path.sep)) throw new Error(`Path "${p}" is outside the workspace.`);
+    if (isHidden(r)) throw new Error(`Path "${p}" belongs to another chat.`);
     return r;
   };
   const rel = (p) => path.relative(root, p).split(path.sep).join('/');
@@ -46,7 +50,7 @@ export function createNodeWorkspace(rootDir, { browserProvider, searxng = proces
         if (it.name === '.DS_Store') continue;
         const full = path.join(dir, it.name);
         if (it.isDirectory()) {
-          if (IGNORED_DIRS.has(it.name)) continue;
+          if (IGNORED_DIRS.has(it.name) || isHidden(full)) continue;
           out.push({ path: rel(full), type: 'dir' });
           if (depth + 1 < maxDepth) await go(full, depth + 1);
         } else if (it.isFile() || it.isSymbolicLink()) {
@@ -86,7 +90,13 @@ export function createNodeWorkspace(rootDir, { browserProvider, searxng = proces
       await fs.writeFile(full, bytes);
     },
     async remove(p) {
-      await fs.rm(abs(p), { force: true });
+      const full = abs(p);
+      if (full === root) throw new Error('Refusing to delete the whole workspace folder.');
+      await fs.rm(full, { force: true, recursive: true });
+    },
+    /** Delete everything inside the workspace folder (the folder itself stays). */
+    async clear() {
+      for (const name of await fs.readdir(root).catch(() => [])) await fs.rm(path.join(root, name), { force: true, recursive: true });
     },
     async search(pattern, { path: p = '.', glob, limit } = {}) {
       return searchFiles({ files: await files(p), read: (f) => fs.readFile(abs(f), 'utf8'), pattern, glob, limit });
@@ -94,14 +104,21 @@ export function createNodeWorkspace(rootDir, { browserProvider, searxng = proces
     async glob(pattern) {
       return matchGlob(await files('.'), pattern);
     },
-    run(command, { cwd, timeout = 120000, onData } = {}) {
+    /**
+     * Run a shell command. interactive: keep stdin open so the user can answer prompts (Python's input());
+     * onSpawn receives the child process (to write to it or stop it).
+     */
+    run(command, { cwd, timeout = 120000, onData, interactive = false, onSpawn } = {}) {
       return new Promise((resolve) => {
         const child = spawn(command, {
           cwd: abs(cwd || '.'),
           shell: true,
-          env: { ...process.env, CI: '1', FORCE_COLOR: '0', GIT_PAGER: 'cat', PAGER: 'cat' },
-          stdio: ['ignore', 'pipe', 'pipe'],
+          // Python buffers its output when it isn't talking to a real terminal: unbuffered, prompts show up right away.
+          env: { ...process.env, CI: '1', FORCE_COLOR: '0', GIT_PAGER: 'cat', PAGER: 'cat', PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+          stdio: [interactive ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         });
+        child.stdin?.on('error', () => {});
+        onSpawn?.(child);
         let stdout = '';
         let stderr = '';
         let timedOut = false;

@@ -467,7 +467,7 @@ async function cmdChat(initial) {
     r.end();
     // Quietly learn about the user from what they said (skipped for tiny models).
     if (!quiet && profile.learn && !isLite() && !ctrl.signal.aborted) {
-      learnAboutUser({ provider, model, profile, userTexts: [prompt.split('\n\n<file')[0]] })
+      learnAboutUser({ provider, model, profile, userTexts: [prompt.split('\n\n<file')[0]], contextBudget: isLite() ? 4096 : ctxBudget })
         .then((facts) => facts.filter((f) => rememberFact(f, 'auto')))
         .then((added) => { profile = loadProfile(); if (added.length) console.log(C.dim(`  🧠 learned: ${added.join(' · ')}`)); })
         .catch(() => {});

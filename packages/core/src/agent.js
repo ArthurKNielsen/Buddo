@@ -3,14 +3,14 @@
 
 import { analyze, splitThinking } from './parser.js';
 import { executeTool, TOOL_MAP } from './tools.js';
-import { buildSystemPrompt } from './prompt.js';
+import { buildSystemPrompt, filesNote } from './prompt.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { missingColors } from './colors.js';
 import { quickChange } from './quick.js';
 import { attachedMedia, requestText, wantsVideoEdit, planQuickVideo } from './quick-video.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml, linkAssets } from './codeblocks.js';
-import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders } from './edits.js';
+import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders, requestedLanguage, isWebFile } from './edits.js';
 
 export const estimateTokens = (s) => Math.ceil((s || '').length / 3.6);
 
@@ -20,7 +20,8 @@ const CLAIMS_DONE = /\b(?:i(?:'ve|’ve| have)?|has been|have been|is now|are no
 // The example page in the lite prompt (<h1>Hello</h1>), sent back instead of what was asked (seen on a phone:
 // "add a green button" → a page that says Hello).
 const copiedExample = (code = '') =>
-  code.replace(/<!doctype[^>]*>|<\/?(?:html|head|body)\b[^>]*>|<meta\b[^>]*>|<title>[\s\S]*?<\/title>|\s+/gi, '').toLowerCase() === '<h1>hello</h1>';
+  code.replace(/<!doctype[^>]*>|<\/?(?:html|head|body)\b[^>]*>|<meta\b[^>]*>|<title>[\s\S]*?<\/title>|\s+/gi, '').toLowerCase() === '<h1>hello</h1>' ||
+  code.trim() === 'print("Hi")';
 
 // Vision models spend roughly this many tokens per attached image.
 const IMAGE_TOKENS = 1000;
@@ -161,7 +162,10 @@ export async function runAgent({
   quickEdits = true,
 }) {
   const ctx = context || (await gatherContext(workspace));
-  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx });
+  // The file list rides along with the user's message, not in the system prompt: the prompt stays word for word the
+  // same between messages, so Ollama / llama.cpp reuse what they already read (the "reading your message" wait).
+  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx, filesInSystem: false });
+  const note = filesNote(ctx, { lite });
   const alwaysAllowed = new Set();
   let wroteFiles = false;
   let nudges = 0;
@@ -173,16 +177,30 @@ export async function runAgent({
   // What the user typed, without the file Buddo attached for small models. Read once, before Buddo adds its
   // own nudges ("I couldn't tell which lines to delete…"), so those are never mistaken for the request.
   const asked = lastUserText().split('\n\n[Current ')[0];
+  // The message the file list is attached to (on the wire only, never saved in the chat).
+  const requestMsg = lastUserMsg();
   const askedText = () => asked;
 
-  /** The page this conversation is working on: the last HTML file written here, else the project's index.html. */
+  // A request for another language ("write a python script") is never about the chat's web page.
+  const language = requestedLanguage(asked);
+  /**
+   * The file this conversation is working on: a file the message names, else the last file of the asked-for
+   * language written here (main.py for "fix the python script"), else the last HTML page / the project's index.html.
+   */
   const findTarget = async () => {
+    const named = [...asked.matchAll(/(?:^|[\s@`'"(])((?:[\w-]+\/)*[\w.-]+\.[a-z0-9]{1,5})(?=$|[\s`'"),.:;!?])/gi)].map((m) => m[1]);
+    for (const n of named) if ((await workspace.read(n).catch(() => null)) !== null) return n;
+    const want = language ? new RegExp(`\\.${language}$`, 'i') : /\.html?$/i;
     for (let i = messages.length - 1; i >= 0; i--) {
       const c = messages[i].content || '';
       const saved = /\[Buddo saved these code blocks as files: ([^\]]+)\]/.exec(c)?.[1]?.split(',').map((x) => x.trim().replace(/ \(.*\)$/, '')) || [];
       const written = [...c.matchAll(/<tool:write_file>\s*<path>([^<]+)<\/path>/g)].map((m) => m[1].trim());
-      const html = [...saved, ...written].reverse().find((n) => /\.html?$/i.test(n));
-      if (html) return html;
+      const hit = [...saved, ...written].reverse().find((n) => want.test(n));
+      if (hit) return hit;
+    }
+    if (language) {
+      const all = await workspace.glob?.(`**/*.${language}`).catch(() => []);
+      return all?.length === 1 ? all[0] : all?.find((f) => /^(main|app|index|script)\./i.test(f)) || null;
     }
     const all = await workspace.glob?.('**/*.html').catch(() => []);
     if (all?.includes('index.html')) return 'index.html';
@@ -436,14 +454,15 @@ export async function runAgent({
 
   // Simple requests ("add a green button", "make the button blue", "remove the heading"): Buddo does them itself,
   // exactly, so no model can overdo them, miss them or rewrite the file. Everything else goes to the model.
-  if (quickEdits && autoSaveCode && mode !== 'plan' && workspace.write) {
+  if (quickEdits && autoSaveCode && mode !== 'plan' && workspace.write && !language) {
     const msg = lastUserMsg();
     if (msg && msg === messages[messages.length - 1]) {
       // Without the files an @mention attached; a mentioned page is the one to change.
       const request = asked.split(/\n\n(?:<file path=|\()/)[0].replace(/(^|\s)@[\w./-]+/g, ' ').trim();
       const mentioned = /(?:^|\s)@([\w./-]+\.html?)\b/i.exec(asked)?.[1];
       const all = mentioned ? [{ path: mentioned, content: await workspace.read(mentioned).catch(() => null) }].filter((f) => f.content !== null) : await readEditFiles();
-      const [page = null, ...files] = all;
+      const [page0 = null, ...files] = all;
+      const page = page0 && /\.html?$/i.test(page0.path) ? page0 : null;
       const empty = !page && !(await workspace.list('.', 1).catch(() => [null])).length;
       const quick = quickChange(request, { page, files, empty });
       if (quick) {
@@ -478,7 +497,8 @@ export async function runAgent({
     let announced = false;
     let streamedSize = -1;
 
-    const wire = [{ role: 'system', content: system }, ...compactForModel(slimHistory(messages), contextBudget)].map((m) =>
+    const at = messages.indexOf(requestMsg);
+    const wire = [{ role: 'system', content: system }, ...compactForModel(slimHistory(messages), contextBudget).map((m, i) => (i === at && note ? { ...m, content: `${m.content}\n\n${note}` } : m))].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
     );
     // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").
@@ -693,7 +713,18 @@ export async function runAgent({
         const editFiles = files.length ? await readEditFiles() : [];
         const [target, ...related] = editFiles;
         const edit = !!target && !isNewBuild(askedText());
-        if (files.some((f) => copiedExample(f.content)) && !/\bhello\b/i.test(askedText())) {
+        // Asked for Python (or another language) and got only a web page back: small models default to HTML.
+        const wrongKind = language && files.length && !files.some((f) => !isWebFile(f.path || `x.${f.lang}`));
+        if (wrongKind && nudges < MAX_NUDGES) {
+          nudges++;
+          messages.push({
+            role: 'user',
+            content: `That is ${files.map((f) => f.path).filter(Boolean).join(', ') || 'web code'}, but the request was for a .${language} file: "${askedText()}". Don't make a web page. Write the ${language} file: its name on its own line (for example main.${language}), then the complete code in a \`\`\`${language === 'py' ? 'python' : language} code block.`,
+          });
+          onEvent({ type: 'nudge', text: `The model wrote a web page instead of a .${language} file — asked it again` });
+          continue;
+        }
+        if (files.some((f) => copiedExample(f.content)) && !/\b(hello|hi)\b/i.test(askedText())) {
           if (nudges >= MAX_NUDGES) return nothingSaved('the model copied the example page from its instructions instead of what you asked', text);
           nudges++;
           const shown = edit ? editFiles.filter((f) => f.content.length < 9000) : [];
@@ -966,14 +997,15 @@ export async function runAgent({
 
 /**
  * After a chat, ask the model (quietly, no tools) what new lasting facts it learned about the user.
- * Returns an array of short facts (possibly empty).
+ * Returns an array of short facts (possibly empty). contextBudget: pass the chat's own. Ollama reloads the whole
+ * model whenever num_ctx changes, so a different size here made the user's next message wait for a reload.
  */
-export async function learnAboutUser({ provider, model, profile, userTexts, signal, temperature = 0 }) {
+export async function learnAboutUser({ provider, model, profile, userTexts, signal, temperature = 0, contextBudget = 4096 }) {
   const text = userTexts.join('\n---\n').slice(-4000);
   if (text.replace(/\s/g, '').length < 25) return [];
   const known = normalizeProfile(profile).memories.map((m) => m.text);
   let out = '';
-  for await (const chunk of provider.stream({ model, messages: [{ role: 'user', content: LEARN_PROMPT(known, text) }], signal, options: { temperature, num_ctx: 4096 } })) {
+  for await (const chunk of provider.stream({ model, messages: [{ role: 'user', content: LEARN_PROMPT(known, text) }], signal, options: { temperature, num_ctx: contextBudget } })) {
     if (chunk.type === 'text') out += chunk.text;
     if (out.length > 2000) break;
   }

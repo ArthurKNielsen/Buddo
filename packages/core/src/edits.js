@@ -116,8 +116,43 @@ const NEW_THING = /\b(make|create|build|write|generate|code|design|program|devel
 const EDIT_WORDS =
   /\b(change|move|add|remove|delete|fix|update|edit|rename|replace|turn|increase|decrease|bigger|smaller|larger|wider|taller|center|centre|align|colou?r|darker|lighter|background|font|style|swap|instead|improve|modify|put|resize|round(ed)?|bold|hide|show|make (it|the|this|that|them|everything|all|my))\b/i;
 
-/** Does this message ask for something new ("make me a snake game")? */
-export const isNewBuild = (text = '') => NEW_THING.test(text);
+// Languages that aren't a web page. Asked for one of these, Buddo writes that kind of file (a Python script is
+// main.py) and never treats the request as a change to the chat's web page.
+const LANGUAGES = [
+  [/\bpython\d?\b|\.py\b|\bpygame\b|\btkinter\b|\bflask\b|\bdjango\b|\bpandas\b|\bnumpy\b/i, 'py'],
+  [/\bjava\b(?!\s*script)/i, 'java'],
+  [/\bc\+\+|\bcpp\b|\.cpp\b/i, 'cpp'],
+  [/\bc#|\bcsharp\b|\.cs\b/i, 'cs'],
+  [/\b(?:in|with|using|write|a|program|code) c\b(?![+#])|\.c\b/i, 'c'],
+  [/\brust\b|\.rs\b/i, 'rs'],
+  [/\bgolang\b|\bgo (?:program|script|code|file|app)\b|\bin go\b|\.go\b/i, 'go'],
+  [/\bruby\b|\.rb\b/i, 'rb'],
+  [/\blua\b|\.lua\b/i, 'lua'],
+  [/\bphp\b/i, 'php'],
+  [/\bkotlin\b|\.kt\b/i, 'kt'],
+  [/\bswift\b/i, 'swift'],
+  [/\bdart\b/i, 'dart'],
+  [/\b(?:bash|shell|sh) script\b|\.sh\b/i, 'sh'],
+  [/\bpowershell\b|\.ps1\b/i, 'ps1'],
+  [/\bbatch (?:file|script)\b|\.bat\b/i, 'bat'],
+  [/\bnode(?:\.?js)? (?:script|program|cli|server|app)\b/i, 'js'],
+];
+const WEB_WORDS = /\b(website|web ?site|web ?page|webpage|landing page|html|css|browser game|web app)\b/i;
+/** The non-web language a message asks for ("write a python script" → 'py'), or null (a website, or nothing said). */
+export function requestedLanguage(text = '') {
+  const t = String(text).split('\n\n[Current ')[0];
+  const hit = LANGUAGES.find(([re]) => re.test(t));
+  if (!hit) return null;
+  // "a website with a Python backend" is still a website: only say Python when the page isn't the point.
+  if (WEB_WORDS.test(t) && !/\.(py|java|cpp|cs|rs|go|rb|lua|kt|sh|ps1|bat)\b/i.test(t) && hit[1] !== 'py') return null;
+  return hit[1];
+}
+/** Is this file a part of a web page (the page, its styles, its scripts)? */
+export const isWebFile = (path = '') => /\.(html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte|svg)$/i.test(path);
+
+const MAKE_VERB = /\b(make|create|build|write|generate|code|program|develop|give|want|need|new)\b/i;
+/** Does this message ask for something new ("make me a snake game", "write python code that…", "create hello.py")? */
+export const isNewBuild = (text = '') => NEW_THING.test(text) || (!!requestedLanguage(text) && MAKE_VERB.test(text) && !/\b(fix|change|update|edit|modify|improve)\b/i.test(text));
 
 /** Does this message ask to change existing code (rather than build something new)? */
 export const looksLikeEdit = (text = '') => !NEW_THING.test(text) && EDIT_WORDS.test(text);
@@ -227,6 +262,10 @@ export function rewriteAsEdits(before = '', after = '', { maxHunks = 12 } = {}) 
  * Returns { writes: [{ path, content, before?, merged?, edit?, edits? }], needFull: boolean, unchanged: [paths
  * the model sent back without changing anything] }.
  */
+const KIND = (ext = '') => (/^(html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte|svg)$/i.test(ext) ? 'web' : ext.toLowerCase());
+/** Is a code block the same kind of code as this file (both web, or both Python…)? */
+const sameFileKind = (f, path = '') => KIND(f.lang || f.path?.split('.').pop()) === KIND(path.split('.').pop());
+
 export async function planCodeSave(files, { target, related = [], edit = false, removing = false, removal = null, read = async () => null } = {}) {
   if (edit && removal) return planRemoval(files, { target, related, kind: removal, read });
   const writes = [];
@@ -266,7 +305,9 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
       continue;
     }
     const existing = await readKnown(f.path);
-    const fragmentOfTarget = edit && target && f.inferred;
+    // An unnamed block is a piece of the file being edited only when it's the same kind of file: a Python block in
+    // a chat about a web page is a new Python file, not a change to the page.
+    const fragmentOfTarget = edit && target && f.inferred && sameFileKind(f, target.path);
     // Bare CSS lines with no selector ("color: green;"): put them where they match.
     if (f.lang === 'css' && !f.content.includes('{') && (existing !== null || fragmentOfTarget)) {
       const hit = spliceSnippet(f, existing !== null && !f.inferred ? [{ path: f.path, content: existing }] : candidates('css'));
@@ -419,6 +460,18 @@ export function mergeChangedLines(content = '', snippet = '') {
       map.push(best);
       last = best;
     } else map.push(-1);
+  }
+  // Lines that didn't match (changed a lot, or the same text is in the file twice) between two lines that did:
+  // when exactly that many lines sit between those two in the file, they are the lines being rewritten.
+  for (let a = 0; a < map.length; a++) {
+    if (map[a] < 0) continue;
+    let b = a + 1;
+    while (b < map.length && map[b] < 0) b++;
+    // (blank lines don't count: the snippet has none)
+    const between = [];
+    if (b < map.length) for (let i = map[a] + 1; i < map[b]; i++) if (file[i].trim()) between.push(i);
+    if (b < map.length && b > a + 1 && between.length === b - a - 1) for (let k = a + 1; k < b; k++) map[k] = between[k - a - 1];
+    a = b - 1;
   }
   const hits = map.filter((i) => i >= 0);
   if (!hits.length) return null;

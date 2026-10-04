@@ -19,7 +19,8 @@ import { screenshot as shot, recordVideo as rec, browserAvailable, chromeProvide
 export { browserAvailable, chromeProvider, parseActions };
 import { makeVideo as make, editVideo as edit } from './studio.js';
 import { transcribe } from './hearing.js';
-export { parseSteps, parseVideoSize, captionChunks, CLOCK } from './studio.js';
+export { parseVideoSize, CLOCK } from './studio.js';
+export { parseSteps, captionChunks } from '@buddo/core';
 
 /** Screenshot a page Buddo built (or any URL). opts: { target, size, full, actions, root, provider } */
 export const screenshot = (opts) => shot(opts);

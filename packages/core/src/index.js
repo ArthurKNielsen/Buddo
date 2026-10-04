@@ -11,3 +11,4 @@ export { SLASH_COMMANDS, parseSlash, COMPACT_PROMPT } from './commands.js';
 export { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
 export { looksGarbled } from './garble.js';
 export { planCodeSave, mergeCss, mergeCssIntoHtml, looksLikeEdit, isNewBuild, sniffLang, isFullHtml, parseFindReplace, mergeChangedLines, rewriteAsEdits, hasPlaceholders, linkedFiles, asksToRemove } from './edits.js';
+export { runEdit, parseSteps, parseVideoSize, parseSeconds, parseProbe, captionChunks, fmtTime, filterPath, videoSlug, VIDEO_SIZES, VIDEO_OUT, IMAGE_EXT, LOOKS } from './video-edit.js';

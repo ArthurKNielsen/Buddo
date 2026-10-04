@@ -7,7 +7,7 @@ import {
 import { diffLines, diffStats } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { getWorkspace, refreshFileIndex } from '../lib/engine.js';
-import { buildPreview } from '../lib/workspaces.js';
+import { buildPreview, mediaUrl } from '../lib/workspaces.js';
 import { revertChange, runUserCommand, submit } from '../lib/runner.js';
 import DiffView, { CodeView } from './DiffView.jsx';
 import { TodoList } from './ToolCard.jsx';
@@ -103,7 +103,13 @@ function FilesTab() {
   const openFile = async (path) => {
     const kind = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(path) ? 'image' : /\.(mp4|mov|webm|m4v|mkv)$/i.test(path) ? 'video' : /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(path) ? 'audio' : null;
     const ws = getWorkspace();
-    if (kind) return setFile({ path, kind, url: ws.rawUrl?.(path), canSense: !!ws.media });
+    if (kind) {
+      const url = await mediaUrl(ws, path).catch(() => null);
+      return setFile((old) => {
+        if (old?.url?.startsWith('blob:')) URL.revokeObjectURL(old.url);
+        return { path, kind, url, canSense: !!ws.media?.[{ image: 'view_image', video: 'watch_video', audio: 'listen_audio' }[kind]] };
+      });
+    }
     try {
       setFile({ path, content: await getWorkspace().read(path) });
     } catch (e) {

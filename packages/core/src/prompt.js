@@ -11,14 +11,13 @@ const MODE_TEXT = {
 /** Which tools this workspace / profile can use. */
 export function availableTools(workspace, { lite = false, profile } = {}) {
   const exec = workspace?.capabilities?.exec;
-  const media = !!workspace?.media;
-  const browser = !!workspace?.media?.screenshot;
   const learn = normalizeProfile(profile).learn;
+  // Media and browser tools only when this workspace can run that exact tool (the website edits videos, but can't hear audio).
+  const has = (t) => typeof workspace?.media?.[t.name] === 'function';
   return TOOLS.filter(
     (t) =>
       (exec || t.name !== 'run_command') &&
-      (media || !t.media) &&
-      (browser || !t.browser) &&
+      (!(t.media || t.browser) || has(t)) &&
       (learn || !t.memory) &&
       (workspace?.webSearch || t.name !== 'web_search') &&
       (!lite || t.lite),
@@ -48,7 +47,16 @@ Optional tools (write ONE, then stop and wait for the result):
 <tool:read_file>
 <path>index.html</path>
 </tool:read_file>
-Tools: ${tools.map((t) => `${t.name}(${t.params.slice(0, 3).join(', ')})`).join(' · ')}
+Tools: ${tools.map((t) => `${t.name}(${t.params.slice(0, 3).join(', ')})`).join(' · ')}${tools.some((t) => t.name === 'edit_video') ? `
+To edit a video (one step per line: trim, cut, speed, crop vertical, text "…" top, music song.mp3, fade out 1):
+<tool:edit_video>
+<input>clip.mp4</input>
+<steps>
+trim 0:02-0:12
+crop vertical
+text "Hello" top
+</steps>
+</tool:edit_video>` : ''}
 Rules: read a file before changing it. Keep explanations short.${thinkAloud ? '\nStart every reply with one short sentence of planning inside <think></think>.' : ''}
 ${tree ? `\nFiles:\n${tree.split('\n').slice(0, 25).join('\n')}\n` : ''}${memory ? `\nProject notes:\n${memory.slice(0, 600)}\n` : ''}
 ${personalityPrompt(profile, { lite: true })}`;
@@ -98,7 +106,7 @@ ${tools}
 # Environment
 - Workspace: ${workspace?.name || 'project'}${workspace?.kind ? ` (${workspace.kind})` : ''}
 - Shell commands: ${exec ? 'available' : 'NOT available'}
-- Senses: ${media ? 'you can watch videos, hear audio and look at image files with the media tools' : 'media tools unavailable here (browser mode)'}${browser ? ', and screenshot/record web pages you build' : ''}${vision ? '. You can SEE images: screenshots, frames and pictures are attached to messages — look closely and describe what is actually there' : '. Your current model cannot see images directly, so rely on the text reports (layout checks, detected objects, transcripts) the tools give you'}
+- Senses: ${media ? (workspace.media.listen_audio ? 'you can watch videos, hear audio and look at image files with the media tools' : 'you can watch and edit videos (no audio transcripts or object detection here)') : 'media tools unavailable here (browser mode)'}${browser ? ', and screenshot/record web pages you build' : ''}${vision ? '. You can SEE images: screenshots, frames and pictures are attached to messages — look closely and describe what is actually there' : '. Your current model cannot see images directly, so rely on the text reports (layout checks, detected objects, transcripts) the tools give you'}
 - Date: ${date.toISOString().slice(0, 10)}
 - Mode: ${MODE_TEXT[mode] || MODE_TEXT.ask}
 ${tree ? `\n# Project files (top levels)\n${tree}\n` : ''}${memory ? `\n# Project memory (BUDDO.md — instructions from the user, follow them)\n${memory}\n` : ''}

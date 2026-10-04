@@ -103,6 +103,7 @@ export const TOOLS = [
     name: 'edit_video',
     kind: 'write',
     media: true,
+    lite: true,
     params: ['input', 'steps', 'out'],
     desc: `Edit videos (and photos) with simple steps, one per line, applied in order. \`input\`: one or more files, one per line — several are joined in order (photos become 3s clips; change with "stills 4"). Steps (times are seconds or m:ss):
   trim 0:05-0:20 (keep only that part) · cut 0:03-0:04.5 (remove a part) · speed 2 (0.5 = slow motion)

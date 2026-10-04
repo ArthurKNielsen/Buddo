@@ -14,11 +14,20 @@ const probeServer = () => (serverProbe ||= detectServer());
 // In the browser sandbox every chat has its own folder, so two chats never share (or overwrite) files.
 // Real folders (local or opened in the browser) are one project that every chat works on.
 const views = new Map();
+
+// Browser-only workspaces edit videos with ffmpeg.wasm (loaded the first time a video tool runs).
+function withBrowserMedia(ws) {
+  if (ws.media || !ws.writeBinary) return ws;
+  const lazy = (name) => async (args) => (await import('./browser-media.js'))[name](ws, args);
+  ws.media = { edit_video: lazy('editVideo'), watch_video: lazy('watchVideo') };
+  return ws;
+}
+
 /** The workspace a chat works in. */
 export function workspaceFor(session) {
   if (workspace.type !== 'sandbox') return workspace;
   const dir = session ? session.sandboxDir ?? '' : 'chats/_new';
-  if (!views.has(dir)) views.set(dir, chatSandbox(workspace, dir));
+  if (!views.has(dir)) views.set(dir, withBrowserMedia(chatSandbox(workspace, dir)));
   return views.get(dir);
 }
 /** The workspace of the chat on screen. */
@@ -34,7 +43,7 @@ useStore.subscribe((s, prev) => {
 });
 
 function publishWorkspace(ws) {
-  workspace = ws;
+  workspace = ws.type === 'folder' ? withBrowserMedia(ws) : ws;
   views.clear();
   useStore.setState({ ws: { kind: ws.kind, type: ws.type, name: ws.name, root: ws.root, exec: !!ws.capabilities.exec } });
   refreshFileIndex();

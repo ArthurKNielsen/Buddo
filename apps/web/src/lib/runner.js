@@ -24,6 +24,35 @@ async function expandMentions(text, ws) {
   return text + extra;
 }
 
+/**
+ * Save dropped videos, music and pictures into the project so the video tools can use them
+ * (a logo for edit_video, a clip to cut). Returns the note for the model.
+ */
+async function saveMedia(attachments, ws) {
+  let note = '';
+  let saved = false;
+  for (const a of attachments) {
+    if (!a.file || (!a.media && !a.image)) continue;
+    // Edit steps are split on spaces, so file names must not have any.
+    const name = a.name.replace(/\s+/g, '-').replace(/[^\w.-]/g, '') || `upload-${Date.now()}`;
+    if (!ws.writeBinary) {
+      if (a.media) note += `\n\n[Attached ${a.media} ${a.name} — this workspace can't store media files. Tell the user to open the Buddo website, desktop app or \`buddo web\` to edit videos.]`;
+      continue;
+    }
+    try {
+      await ws.writeBinary(name, new Uint8Array(await a.file.arrayBuffer()));
+      a.saved = name;
+      saved = true;
+      if (a.media) note += `\n\n[Attached ${a.media}: saved to the project as ${name}${ws.media?.watch_video && a.media === 'video' ? ' — watch it with watch_video, edit it with edit_video' : ws.media?.edit_video ? ' — use it in edit_video (e.g. music ' + name + ')' : ''}]`;
+      else note += `\n(The picture is also saved to the project as ${name}, e.g. for a logo or overlay in edit_video.)`;
+    } catch (e) {
+      note += `\n\n[Attached ${a.name} — could not be saved: ${e.message}]`;
+    }
+  }
+  if (saved) refreshFileIndex();
+  return note;
+}
+
 /** Handle composer input: slash commands or a normal message. */
 export async function submit(input, attachments = []) {
   const text = input.trim();
@@ -83,7 +112,8 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
   }
 
   let full = await expandMentions(prompt, ws);
-  for (const a of attachments) if (!a.image) full += `\n\n<file path="${a.name}">\n${a.content.slice(0, 60000)}\n</file>`;
+  for (const a of attachments) if (!a.image && !a.media) full += `\n\n<file path="${a.name}">\n${a.content.slice(0, 60000)}\n</file>`;
+  full += await saveMedia(attachments, ws);
   const pics = attachments.filter((a) => a.image);
   const vision = st.vision;
   const lite = liteMode(settings);
@@ -103,7 +133,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     id: uid(),
     type: 'user',
     text: display || prompt,
-    attachments: attachments.filter((a) => !a.image).map((a) => a.name),
+    attachments: attachments.filter((a) => !a.image).map((a) => a.saved || a.name),
     images: pics.map((a) => `data:${a.mime || 'image/jpeg'};base64,${a.image}`),
     at: Date.now(),
   };

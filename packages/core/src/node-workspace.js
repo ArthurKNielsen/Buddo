@@ -80,6 +80,11 @@ export function createNodeWorkspace(rootDir, { browserProvider, searxng = proces
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, content, 'utf8');
     },
+    async writeBinary(p, bytes) {
+      const full = abs(p);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, bytes);
+    },
     async remove(p) {
       await fs.rm(abs(p), { force: true });
     },

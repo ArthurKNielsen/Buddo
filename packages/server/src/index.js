@@ -122,6 +122,11 @@ export async function startServer({ port = 4141, host = '127.0.0.1', root = proc
       await workspace.write(b.path, b.content ?? '');
       return send(res, 200, { ok: true });
     }
+    // Videos, music and pictures dropped into the chat (raw bytes, not JSON).
+    if (p === '/api/fs/upload' && req.method === 'POST') {
+      await workspace.writeBinary(q.get('path') || '', await readBody(req, 1024 * 1024 * 1024));
+      return send(res, 200, { ok: true });
+    }
     if (p === '/api/fs/remove' && req.method === 'POST') {
       await workspace.remove((await json(req)).path);
       return send(res, 200, { ok: true });

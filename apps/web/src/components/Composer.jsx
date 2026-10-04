@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, Square, Paperclip, X, ShieldCheck, Zap, Flame, Map as MapIcon, FileText, Slash, AtSign } from 'lucide-react';
+import { ArrowUp, Square, Paperclip, X, ShieldCheck, Zap, Flame, Map as MapIcon, FileText, Slash, AtSign, Film, Music } from 'lucide-react';
 import { SLASH_COMMANDS, contextTokens } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { submit, stop } from '../lib/runner.js';
@@ -202,7 +202,9 @@ export default function Composer() {
     const out = [];
     for (const f of list) {
       try {
-        if (f.type.startsWith('image/')) out.push({ name: f.name || 'pasted-image.png', ...(await shrinkImage(f)) });
+        // Videos and music are saved into the project when sent, so Buddo can watch and edit them.
+        if (/^(video|audio)\//.test(f.type) || /\.(mp4|mov|webm|m4v|mkv|mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name)) out.push({ name: f.name, media: f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name) ? 'audio' : 'video', file: f });
+        else if (f.type.startsWith('image/')) out.push({ name: f.name || 'pasted-image.png', ...(await shrinkImage(f)), file: f });
         else if (f.size <= 2_000_000) out.push({ name: f.name, content: await f.text() });
       } catch {}
     }
@@ -275,7 +277,7 @@ export default function Composer() {
               <motion.div className="attachments" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
                 {files.map((f, i) => (
                   <motion.span key={f.name + i} className={'chip' + (f.image ? ' chip-img' : '')} initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
-                    {f.image ? <img src={`data:${f.mime};base64,${f.image}`} alt="" /> : <FileText size={12} />} {f.name}
+                    {f.image ? <img src={`data:${f.mime};base64,${f.image}`} alt="" /> : f.media === 'video' ? <Film size={12} /> : f.media === 'audio' ? <Music size={12} /> : <FileText size={12} />} {f.name}
                     <button onClick={() => setFiles(files.filter((_, j) => j !== i))}>
                       <X size={12} />
                     </button>

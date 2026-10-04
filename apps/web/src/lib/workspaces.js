@@ -65,6 +65,10 @@ export function serverWorkspace(info) {
     read: async (path) => (await api(`/api/fs/read?path=${encodeURIComponent(path)}`)).content,
     write: (path, content) => api('/api/fs/write', { method: 'POST', body: { path, content } }),
     remove: (path) => api('/api/fs/remove', { method: 'POST', body: { path } }),
+    async writeBinary(path, bytes) {
+      const r = await fetch(`/api/fs/upload?path=${encodeURIComponent(path)}`, { method: 'POST', headers: H, body: bytes });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    },
     search: async (pattern, opts = {}) => (await api('/api/fs/search', { method: 'POST', body: { pattern, ...opts } })).hits,
     glob: async (pattern) => (await api('/api/fs/glob', { method: 'POST', body: { pattern } })).files,
     fetchUrl: async (url) => (await api('/api/fetch', { method: 'POST', body: { url } })).text,
@@ -173,6 +177,21 @@ export function browserFolderWorkspace(dir) {
       const { parent, name } = await resolve(path);
       await parent.removeEntry(name);
     },
+    async readBinary(path) {
+      try {
+        const { parent, name } = await resolve(path);
+        return new Uint8Array(await (await (await parent.getFileHandle(name)).getFile()).arrayBuffer());
+      } catch (e) {
+        if (e.name === 'NotFoundError' || e.name === 'TypeMismatchError') throw new Error(`File not found: ${path}`);
+        throw e;
+      }
+    },
+    async writeBinary(path, bytes) {
+      const { parent, name } = await resolve(path, { create: true });
+      const w = await (await parent.getFileHandle(name, { create: true })).createWritable();
+      await w.write(bytes);
+      await w.close();
+    },
     search: async (pattern, { path, glob, limit } = {}) => {
       let list = await files();
       if (path && path !== '.') list = list.filter((f) => f.startsWith(path.replace(/^\.\//, '').replace(/\/$/, '') + '/'));
@@ -200,6 +219,11 @@ function saveSandbox(files) {
   } catch {}
 }
 
+// Videos, music and pictures are too big for localStorage: their bytes live in IndexedDB and the
+// file list keeps a small marker so they still show up in the project.
+const BLOB_MARK = '\u0000buddo-blob:';
+const isBlob = (v) => typeof v === 'string' && v.startsWith(BLOB_MARK);
+
 export function sandboxWorkspace(name = 'sandbox') {
   const files = loadSandbox();
   const norm = (p) => p.replace(/^\.?\/*/, '').replace(/\/+/g, '/');
@@ -222,8 +246,10 @@ export function sandboxWorkspace(name = 'sandbox') {
   const read = async (p) => {
     const k = norm(p);
     if (!(k in files)) throw new Error(`File not found: ${p}`);
+    if (isBlob(files[k])) throw new Error(`${p} is a media file. Use watch_video or edit_video for videos.`);
     return files[k];
   };
+  const dropBlob = (k) => isBlob(files[k]) && idbDelete(`sandbox:${k}`);
   return {
     kind: 'browser sandbox',
     type: 'sandbox',
@@ -240,16 +266,31 @@ export function sandboxWorkspace(name = 'sandbox') {
       saveSandbox(files);
     },
     async remove(p) {
+      dropBlob(norm(p));
       delete files[norm(p)];
       saveSandbox(files);
     },
     /** Delete every file whose path passes `test`. */
     removeWhere(test) {
-      for (const k of Object.keys(files)) if (test(k)) delete files[k];
+      for (const k of Object.keys(files)) if (test(k)) (dropBlob(k), delete files[k]);
       saveSandbox(files);
     },
     clear() {
-      for (const k of Object.keys(files)) delete files[k];
+      for (const k of Object.keys(files)) (dropBlob(k), delete files[k]);
+      saveSandbox(files);
+    },
+    async readBinary(p) {
+      const k = norm(p);
+      if (!(k in files)) throw new Error(`File not found: ${p}`);
+      if (!isBlob(files[k])) return new TextEncoder().encode(files[k]);
+      const bytes = await idbGet(`sandbox:${k}`);
+      if (!bytes) throw new Error(`${p} was lost (the browser cleared its storage). Attach it again.`);
+      return bytes;
+    },
+    async writeBinary(p, bytes) {
+      const k = norm(p);
+      await idbPut(`sandbox:${k}`, bytes);
+      files[k] = `${BLOB_MARK}${bytes.length}`;
       saveSandbox(files);
     },
     search: async (pattern, { path, glob, limit } = {}) => {
@@ -301,6 +342,8 @@ export function chatSandbox(base, dir = '') {
     read,
     write: (p, content) => base.write(to(p), content),
     remove: (p) => base.remove(to(p)),
+    readBinary: (p) => base.readBinary(to(p)),
+    writeBinary: (p, bytes) => base.writeBinary(to(p), bytes),
     clear: () => base.removeWhere((k) => k.startsWith(pre)),
     search: async (pattern, { path, glob, limit } = {}) => {
       let l = keys();
@@ -370,8 +413,10 @@ export async function buildPreview(ws, entry, overrides = {}) {
 // ── persist the browser folder handle across reloads (IndexedDB) ──
 function idb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('buddo', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    const r = indexedDB.open('buddo', 2);
+    r.onupgradeneeded = () => {
+      for (const s of ['kv', 'blobs']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s);
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
@@ -393,4 +438,35 @@ export async function loadHandle() {
   } catch {
     return null;
   }
+}
+
+// ── media files of the browser sandbox (IndexedDB) ──
+async function idbPut(key, bytes) {
+  const db = await idb();
+  await new Promise((res, rej) => {
+    const t = db.transaction('blobs', 'readwrite');
+    t.objectStore('blobs').put(bytes, key);
+    t.oncomplete = res;
+    t.onerror = () => rej(t.error || new Error('Could not save the file (browser storage full?)'));
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((res) => {
+    const r = db.transaction('blobs').objectStore('blobs').get(key);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => res(null);
+  });
+}
+function idbDelete(key) {
+  idb().then((db) => db.transaction('blobs', 'readwrite').objectStore('blobs').delete(key)).catch(() => {});
+}
+
+const MEDIA_TYPES = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.gif': 'image/gif', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg' };
+/** A URL a <video>/<img>/<audio> can play: served by the local server, or a blob from browser storage (revoke it when done). */
+export async function mediaUrl(ws, path) {
+  if (ws.rawUrl) return ws.rawUrl(path);
+  if (!ws.readBinary) return null;
+  const type = MEDIA_TYPES[(/\.[^./]+$/.exec(path)?.[0] || '').toLowerCase()] || 'application/octet-stream';
+  return URL.createObjectURL(new Blob([await ws.readBinary(path)], { type }));
 }

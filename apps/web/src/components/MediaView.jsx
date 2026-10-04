@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getWorkspace } from '../lib/engine.js';
+import { mediaUrl } from '../lib/workspaces.js';
 import { Eye, Mic, AudioLines, Scissors, Zap, AlertTriangle, CheckCircle2, MousePointerClick, Film } from 'lucide-react';
 
 const fmt = (s) => {
@@ -103,7 +104,17 @@ function PageReport({ d }) {
 
 /** Play a video Buddo made or edited, straight from the project folder. */
 function MadeVideo({ path }) {
-  const url = getWorkspace()?.rawUrl?.(path);
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let made = null;
+    let live = true;
+    const ws = getWorkspace();
+    if (ws) mediaUrl(ws, path).then((u) => (live ? setUrl((made = u)) : u?.startsWith('blob:') && URL.revokeObjectURL(u))).catch(() => {});
+    return () => {
+      live = false;
+      if (made?.startsWith('blob:')) URL.revokeObjectURL(made);
+    };
+  }, [path]);
   if (!url) return null;
   return /\.gif$/i.test(path) ? <img className="media-player" src={url} alt={path} /> : <video className="media-player" src={url} controls playsInline preload="metadata" />;
 }

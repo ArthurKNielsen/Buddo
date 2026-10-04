@@ -2,6 +2,9 @@
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { parseProbe, fmtTime } from '@buddo/core';
+
+export { fmtTime };
 
 const require = createRequire(import.meta.url);
 
@@ -52,37 +55,11 @@ export async function ffmpeg(args, opts) {
 /** Media info parsed from `ffmpeg -i` output. */
 async function probeWithFfmpeg(file) {
   const r = await run(FFMPEG, ['-hide_banner', '-nostdin', '-i', file]);
-  const err = r.stderr;
-  if (!/Input #0/.test(err)) throw new Error(`Can't read media file: ${err.trim().split('\n').pop() || file}`);
-  const dur = /Duration: (\d+):(\d+):([\d.]+)/.exec(err);
-  const vLine = err.split('\n').find((l) => /Stream #\S+.*: Video: /.test(l) && !/attached pic/.test(l));
-  const aLine = err.split('\n').find((l) => /Stream #\S+.*: Audio: /.test(l));
-  let width;
-  let height;
-  if (vLine) {
-    const m = /, (\d{2,5})x(\d{2,5})/.exec(vLine);
-    if (m) [width, height] = [Number(m[1]), Number(m[2])];
-  }
-  const rot = /rotation of (-?[\d.]+) degrees/.exec(err);
-  if (rot && Math.abs(Math.round(Number(rot[1]))) % 180 === 90) [width, height] = [height, width];
-  const fps = vLine && /, ([\d.]+) fps/.exec(vLine);
-  const fmt = /Input #0, ([^,]+)/.exec(err);
   let size = 0;
   try {
     size = (await import('node:fs')).statSync(file).size;
   } catch {}
-  return {
-    duration: dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : 0,
-    width,
-    height,
-    fps: fps ? Number(fps[1]) : 0,
-    video: !!vLine,
-    audio: !!aLine,
-    videoCodec: vLine && /Video: (\w+)/.exec(vLine)?.[1],
-    audioCodec: aLine && /Audio: (\w+)/.exec(aLine)?.[1],
-    format: fmt?.[1],
-    size,
-  };
+  return parseProbe(r.stderr, size);
 }
 
 export async function probe(file) {
@@ -110,9 +87,3 @@ export async function probe(file) {
     size: Number(j.format.size) || 0,
   };
 }
-
-export const fmtTime = (s) => {
-  const m = Math.floor(s / 60);
-  const sec = s - m * 60;
-  return `${m}:${sec.toFixed(1).padStart(4, '0')}`;
-};

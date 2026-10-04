@@ -15,6 +15,8 @@ export default defineConfig({
       '/llm': { target: server, changeOrigin: false },
     },
   },
+  // ffmpeg.wasm starts its own worker; pre-bundling breaks its import.meta.url paths.
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 1500,

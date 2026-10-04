@@ -111,13 +111,44 @@ Rules:
 - Only the files listed ${filesInSystem ? 'above' : 'with the latest message'} exist. Never read or mention any other file.
 - Something new: write the files right away, don't read first. A change: change only the lines that were asked.
 - Write each file once. When Buddo says a file is saved, it is saved: don't write it again.
-- Don't apologise. When it's done, say so in one short sentence.${thinkAloud ? '\n- Start every reply with one short sentence of planning inside <think></think>.' : ''}
+- Don't apologise or repeat yourself. Never say it's done unless Buddo said the file was saved. When it's done, say so in one short sentence.${thinkAloud ? '\n- Start every reply with one short sentence of planning inside <think></think>.' : ''}
 ${memory ? `\nProject notes:\n${memory.slice(0, 600)}\n` : ''}
 ${personalityPrompt(profile, { lite: true })}`;
 }
 
+// Which arguments a tool can't do without (the rest are optional). Tools not listed need their first one.
+const REQUIRED = { list_dir: [], write_file: ['path', 'content'], edit_file: ['path', 'old', 'new'], todo: ['items'], screenshot: [], record_video: [] };
+
+/**
+ * The tools as JSON schemas for engines with built-in tool calling (Ollama's `tools`): models like qwen2.5-coder
+ * were trained on this format, so they call tools far more reliably than with Buddo's text protocol.
+ */
+export function toolSchemas(workspace, { profile } = {}) {
+  const caps = capsOf(workspace);
+  return availableTools(workspace, { profile }).map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: show(t.desc, caps),
+      parameters: {
+        type: 'object',
+        properties: Object.fromEntries(t.params.map((p) => [p, { type: 'string' }])),
+        required: REQUIRED[t.name] ?? t.params.slice(0, 1),
+      },
+    },
+  }));
+}
+
+// How Buddo talks, the way a careful senior engineer would (and the way Claude Code does).
+const TONE = `# How to talk
+- Be direct and brief. Lead with the answer or the action, not with "Sure!", "Great question" or "Certainly".
+- Never repeat yourself: don't restate the request, don't say again what you already said in this chat, don't paste back code you just wrote or a tool's output, and don't end with a recap of what you just did step by step.
+- Never lie. Only say something is done, created, fixed, run or passing when a tool result in this chat shows it. If a tool failed, say it failed. If you don't know, say so: don't invent files, APIs, versions or results.
+- If you said you'd do something ("I'll create main.py"), do it with a tool call in the same message.
+- Explain the why in one line when it helps; use exact names (files, functions, commands) instead of vague words.`;
+
 /** filesInSystem: false leaves the file list out (send filesNote() with the latest message instead). */
-export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false, filesInSystem = true } = {}) {
+export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false, filesInSystem = true, nativeTools = false } = {}) {
   if (lite) return litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud, filesInSystem });
   const exec = workspace?.capabilities?.exec;
   const media = !!workspace?.media;
@@ -127,14 +158,18 @@ export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, m
   const name = normalizeProfile(profile).name;
   const available = availableTools(workspace, { profile });
   const has = (n) => available.some((t) => t.name === n);
-  const tools = available.map((t) => `### ${t.name}\n${show(t.desc, caps)}\nParams: ${t.params.map((p) => `<${p}>`).join(' ')}\n${show(t.example, ex)}`).join('\n\n');
+  const tools = nativeTools ? '' : available.map((t) => `### ${t.name}\n${show(t.desc, caps)}\nParams: ${t.params.map((p) => `<${p}>`).join(' ')}\n${show(t.example, ex)}`).join('\n\n');
   const mediaTools = ['watch_video', 'listen_audio', 'view_image'].filter(has);
   const projectFiles = filesInSystem ? filesSection(files, tree) : '';
   const empty = filesInSystem && Array.isArray(files) && !files.length;
 
   return `You are ${name}, an expert software engineer working inside the user's project. You are precise, careful and honest. You run fully locally and free.
 
-# How to use tools
+${nativeTools ? `# How to use tools
+You have tools (${available.map((t) => t.name).join(', ')}). To act, CALL a tool — that is the only way anything happens: writing code in your reply does not save it, and saying you did something does not do it.
+Call one tool at a time and wait for its result. Tool results are the truth; never guess what a tool returned. When the task is complete, reply without a tool call.
+${thinkAloud ? '\nThink out loud: start EVERY message with a short plan inside <think>...</think> (1-3 sentences), then call your tool or answer.\n' : ''}
+` : `# How to use tools
 You act by writing ONE tool call in this exact XML format, then you STOP and wait for the result:
 
 <tool:TOOL_NAME>
@@ -149,7 +184,7 @@ ${thinkAloud ? '\nThink out loud: start EVERY message with a short plan inside <
 # Tools
 ${tools}
 
-# How to work
+`}# How to work
 1. Know what exists: the project files list is the truth. Never read, edit or mention a file that isn't in it unless you create it — no guessed paths, no files from examples.
 2. Something NEW (${empty ? 'the project is empty, so this is the case now' : 'a new page, app, game or file'}): don't read or search first — there is nothing to read. Write every file right away with write_file, each one complete and working, never "..." placeholders. Use the language the user asks for (a Python script is a .py file, e.g. main.py; a Java program a .java file) and never turn it into a web page. Only for a website: index.html, styles.css and script.js, linked to each other.${has('todo') ? ' Use the todo tool only for big jobs (5+ files).' : ''}
 3. A CHANGE to something that exists ("make the heading green", "add a menu"): read the file(s) involved once (the page and the CSS/JS it links), find the exact lines that control what was asked, and change only those with edit_file, one call per spot. Never rewrite a whole existing file for a small change. To add something, edit the line next to where it goes. To remove something, put those lines in <old> and leave <new> empty.
@@ -163,6 +198,8 @@ ${tools}
 11. Media: use ${mediaTools.join(' / ')} whenever the user mentions such a file — never guess what is in it. Cite timestamps (m:ss) for videos and audio. Only use media files that exist (listed below or attached by the user).${has('edit_video') ? `
     Videos: to EDIT a video, watch it first, then use edit_video. Edit like a pro unless the user wants it plain: a short hook title that pops in with a pop sound in the first 2 seconds, punchy text (2-6 words) that slides in at the key moments, a punch zoom + boom or whoosh on the best moment${caps.audio ? '' : ' (the loudest moment watch_video reports)'}, transitions with a whoosh between clips, and quiet music under speech when the user gave you a song. Time everything to what you saw in the key frames; keep text off faces (top or bottom), no emoji in video text (they can't be drawn), and don't overdo it — at most one effect every couple of seconds.` : ''}${has('make_video') ? ' To MAKE a video (intro, promo, explainer, animated text, app demo, social post), build it from UI elements: write_file an .html scene sized exactly for the video (100vw×100vh, overflow hidden) animated with CSS @keyframes (use animation-delay to sequence scenes), then make_video it, look at the key frames and fix anything off. For a lower third, caption card or subscribe button on top of real footage, make an .html with a transparent background and use "overlay file.html" in edit_video.' : ''}` : ''}
 ${mediaTools.length ? '12' : '11'}. Finish: when the work is done, reply WITHOUT a tool call — 1-3 short lines saying what you made or changed (file names) and anything the user must do next. Only say something is done after a tool result confirmed it.
+
+${TONE}
 
 # Environment
 - Workspace: ${workspace?.name || 'project'}${workspace?.kind ? ` (${workspace.kind})` : ''}
@@ -180,6 +217,6 @@ ${personalityPrompt(profile)}
 - Only the project files listed ${filesInSystem ? 'above' : 'with the latest message'} exist. Never invent or guess a file.
 - New things: write the complete files right away. Changes: only the lines that were asked.
 - Saved means saved: never write the same file twice. Never repeat a call that worked; never repeat one that failed.
-- When it's done: a short summary and no tool call.
+- When it's done: one or two short lines and no tool call. Never claim what no tool result showed; never repeat yourself.
 ${extra ? `\n${extra}\n` : ''}`;
 }

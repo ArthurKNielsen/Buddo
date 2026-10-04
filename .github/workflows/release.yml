@@ -1,11 +1,14 @@
 name: Release Windows app
 
 # Builds ONE file, Buddo-Setup.exe, and puts only that file on the Releases page.
-# Run it from the Actions tab (pick a tag like v1.0.0), or push a tag that starts with "v".
+# Every push to main releases the next version by itself (v1.0.0 → v1.0.1), and the desktop app updates itself
+# to it. Put [skip release] in a commit message to skip one. A tag that starts with "v", or running it from the
+# Actions tab with a tag, releases exactly that version (use it for v1.1.0, v2.0.0…).
 # The tests already ran in CI on the commit being released, so this only builds.
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -23,16 +26,25 @@ concurrency:
 
 jobs:
   windows:
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
       run:
         shell: bash
     env:
-      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Pick the version
+        if: env.TAG == ''
+        run: |
+          # A push to main: the newest vX.Y.Z release, one patch higher.
+          latest=$(gh release list --limit 50 --json tagName --jq '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // "v1.0.0"')
+          IFS=. read -r major minor patch <<< "${latest#v}"
+          echo "TAG=v$major.$minor.$((patch + 1))" >> "$GITHUB_ENV"
+          echo "Releasing v$major.$minor.$((patch + 1)) (after $latest)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22

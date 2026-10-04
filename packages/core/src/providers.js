@@ -51,11 +51,26 @@ const toOpenAI = (messages) =>
       : { role: m.role, content: m.content },
   );
 
+/** Tool-call arguments as plain strings (they arrive as an object, or as a JSON string from OpenAI-style servers). */
+export function toolArgs(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [k, typeof v === 'string' ? v : v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)]));
+}
+
 export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {}, fetch: f = globalThis.fetch.bind(globalThis) } = {}) {
   const url = (p) => baseUrl.replace(/\/$/, '') + p;
   return {
     id: 'ollama',
     label: 'Ollama',
+    // Built-in tool calling (for models whose capabilities say "tools") and JSON-schema-constrained replies.
+    supports: { tools: true, format: true },
     async ping() {
       const r = await f(url('/api/version'), { headers });
       await check(r);
@@ -92,6 +107,8 @@ export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {
             messages,
             stream: true,
             keep_alive: '30m',
+            ...(options.tools?.length ? { tools: options.tools } : {}),
+            ...(options.format ? { format: options.format } : {}),
             options: { num_ctx: options.num_ctx || 16384, temperature: options.temperature ?? 0.2 },
           }),
           signal,
@@ -107,6 +124,7 @@ export function ollamaProvider({ baseUrl = 'http://localhost:11434', headers = {
         if (j.error) throw new Error(j.error);
         if (j.message?.thinking) yield { type: 'thinking', text: j.message.thinking };
         if (j.message?.content) yield { type: 'text', text: j.message.content };
+        for (const c of j.message?.tool_calls || []) yield { type: 'tool_call', name: c.function?.name, args: toolArgs(c.function?.arguments) };
         if (j.done) {
           if (j.done_reason) yield { type: 'finish', reason: j.done_reason };
           yield {
@@ -145,6 +163,7 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
   return {
     id: 'openai',
     label: 'LM Studio / OpenAI-compatible',
+    supports: { tools: true },
     async ping() {
       await check(await f(url('/models'), { headers }));
       return {};
@@ -162,14 +181,19 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
         await f(url('/chat/completions'), {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...headers },
-          body: JSON.stringify({ model, messages: toOpenAI(messages), stream: true, temperature: options.temperature ?? 0.2, stream_options: { include_usage: true } }),
+          body: JSON.stringify({ model, messages: toOpenAI(messages), stream: true, temperature: options.temperature ?? 0.2, stream_options: { include_usage: true }, ...(options.tools?.length ? { tools: options.tools } : {}) }),
           signal,
         }),
       );
+      // Tool calls stream in pieces (the arguments a few characters at a time): put them together, send them at the end.
+      const calls = [];
+      const flush = function* () {
+        for (const c of calls.splice(0)) if (c?.name) yield { type: 'tool_call', name: c.name, args: toolArgs(c.args) };
+      };
       for await (const line of readLines(r.body)) {
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') return yield* flush();
         let j;
         try {
           j = JSON.parse(data);
@@ -180,9 +204,18 @@ export function openaiCompatProvider({ baseUrl = 'http://localhost:1234/v1', hea
         const think = d.reasoning_content || d.reasoning;
         if (think) yield { type: 'thinking', text: think };
         if (d.content) yield { type: 'text', text: d.content };
-        if (j.choices?.[0]?.finish_reason) yield { type: 'finish', reason: j.choices[0].finish_reason };
+        for (const t of d.tool_calls || []) {
+          const c = (calls[t.index ?? 0] ||= { name: '', args: '' });
+          if (t.function?.name) c.name += t.function.name;
+          if (t.function?.arguments) c.args += typeof t.function.arguments === 'string' ? t.function.arguments : JSON.stringify(t.function.arguments);
+        }
+        if (j.choices?.[0]?.finish_reason) {
+          yield* flush();
+          yield { type: 'finish', reason: j.choices[0].finish_reason };
+        }
         if (j.usage) yield { type: 'usage', prompt: j.usage.prompt_tokens || 0, completion: j.usage.completion_tokens || 0 };
       }
+      yield* flush();
     },
   };
 }

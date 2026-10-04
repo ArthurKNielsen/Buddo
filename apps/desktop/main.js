@@ -77,9 +77,10 @@ async function boot() {
 }
 
 // ── Updates ──
-// New versions are GitHub releases with one file, Buddo-Setup.exe. Buddo checks the latest release on start (and
-// when asked), downloads the installer with progress, then runs it: the one-click installer replaces this copy
-// and opens the new one. Mac and Linux builds aren't released, so there it opens the Releases page instead.
+// New versions are GitHub releases with one file, Buddo-Setup.exe (every push to main releases one). Buddo checks
+// on start and every few hours, downloads a new version quietly in the background, then installs it silently:
+// right away when the user clicks "Restart to update" (and opens again), or else when they quit Buddo.
+// Mac and Linux builds aren't released, so there it opens the Releases page instead.
 const REPO = 'arthurknielsen/buddo';
 const RELEASES = `https://github.com/${REPO}/releases/latest`;
 const newer = (a, b) => {
@@ -88,9 +89,12 @@ const newer = (a, b) => {
   for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
   return false;
 };
-let update = null; // { version, url, size, notes }
-let downloading = null;
+let update = null; // { version, url, size, notes, page }
+let downloading = null; // promise of the downloaded installer's path
+let ready = null; // { version, file }: downloaded, installs on restart or quit
+let installing = false;
 const sendUpdate = (msg) => win && !win.isDestroyed() && win.webContents.send('buddo:update', msg);
+const canSelfInstall = () => process.platform === 'win32' && app.isPackaged;
 
 async function checkForUpdate() {
   const r = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: 'application/vnd.github+json', 'user-agent': 'Buddo' } });
@@ -100,23 +104,23 @@ async function checkForUpdate() {
   const current = app.getVersion();
   const available = newer(rel.tag_name, current);
   update = available ? { version: rel.tag_name.replace(/^v/, ''), url: exe?.browser_download_url || null, size: exe?.size || 0, notes: (rel.body || '').slice(0, 2000), page: rel.html_url || RELEASES } : null;
-  return { current, latest: rel.tag_name.replace(/^v/, ''), available, canInstall: available && process.platform === 'win32' && !!exe, ...(update || {}) };
+  const info = { current, latest: rel.tag_name.replace(/^v/, ''), available, canInstall: available && canSelfInstall() && !!exe, ready: !!ready && ready.version === update?.version, ...(update || {}) };
+  // Get it ready in the background: the user only ever sees "Restart to update".
+  if (info.canInstall && !info.ready) downloadUpdate().catch(() => {});
+  return info;
 }
 
-async function installUpdate() {
-  if (!update) await checkForUpdate();
-  if (!update) return { ok: false, error: 'Buddo is already up to date.' };
-  if (process.platform !== 'win32' || !update.url) {
-    shell.openExternal(update.page);
-    return { ok: true, opened: true };
-  }
+function downloadUpdate() {
+  if (ready && ready.version === update?.version) return Promise.resolve(ready.file);
   if (downloading) return downloading;
+  const want = update;
   downloading = (async () => {
-    const file = path.join(app.getPath('temp'), `Buddo-Setup-${update.version}.exe`);
-    const r = await net.fetch(update.url);
+    const file = path.join(app.getPath('temp'), `Buddo-Setup-${want.version}.exe`);
+    const r = await net.fetch(want.url);
     if (!r.ok || !r.body) throw new Error(`Download failed (${r.status}).`);
-    const total = Number(r.headers.get('content-length')) || update.size || 0;
-    const out = fs.createWriteStream(file);
+    const total = Number(r.headers.get('content-length')) || want.size || 0;
+    const part = `${file}.part`;
+    const out = fs.createWriteStream(part);
     let got = 0;
     let last = 0;
     const reader = r.body.getReader();
@@ -125,25 +129,50 @@ async function installUpdate() {
       if (done) break;
       got += value.length;
       if (!out.write(Buffer.from(value))) await new Promise((ok) => out.once('drain', ok));
-      if (Date.now() - last > 150) {
+      if (Date.now() - last > 250) {
         last = Date.now();
-        sendUpdate({ stage: 'download', got, total });
+        sendUpdate({ stage: 'download', got, total, version: want.version });
       }
     }
     await new Promise((ok, bad) => out.end((e) => (e ? bad(e) : ok())));
-    if (total && got < total) throw new Error('The download was cut off. Try again.');
-    sendUpdate({ stage: 'install' });
-    // The installer closes this copy itself; start it detached, then quit so files aren't in use.
-    spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
-    setTimeout(() => app.quit(), 600);
-    return { ok: true };
-  })().catch((e) => {
+    if (total && got < total) throw new Error('The download was cut off. It will try again later.');
+    fs.renameSync(part, file);
+    ready = { version: want.version, file };
+    sendUpdate({ stage: 'ready', version: want.version });
+    return file;
+  })().finally(() => {
     downloading = null;
-    sendUpdate({ stage: 'error', error: e.message });
-    return { ok: false, error: e.message };
   });
+  downloading.catch((e) => sendUpdate({ stage: 'error', error: e.message }));
   return downloading;
 }
+
+/** Install now: silently, then Buddo opens again on the new version. */
+async function installUpdate() {
+  if (!update) await checkForUpdate();
+  if (!update) return { ok: false, error: 'Buddo is already up to date.' };
+  if (!canSelfInstall() || !update.url) {
+    shell.openExternal(update.page);
+    return { ok: true, opened: true };
+  }
+  const file = await downloadUpdate();
+  sendUpdate({ stage: 'install' });
+  runInstaller(file, true);
+  setTimeout(() => app.quit(), 400);
+  return { ok: true };
+}
+
+// /S: silent (no installer window). --force-run: open Buddo again afterwards.
+function runInstaller(file, reopen) {
+  if (installing) return;
+  installing = true;
+  spawn(file, reopen ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+}
+
+// Downloaded but not installed yet: install quietly as Buddo closes.
+app.on('before-quit', () => {
+  if (ready && !installing && fs.existsSync(ready.file)) runInstaller(ready.file, false);
+});
 
 ipcMain.handle('buddo:update-check', () => checkForUpdate().catch((e) => ({ error: e.message, current: app.getVersion() })));
 ipcMain.handle('buddo:update-install', () => installUpdate().catch((e) => ({ ok: false, error: e.message })));
@@ -158,7 +187,9 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
   await boot();
   // Look for a new version a few seconds after start (quietly: no internet is fine).
-  setTimeout(() => checkForUpdate().then((u) => u.available && sendUpdate({ stage: 'available', ...u })).catch(() => {}), 4000);
+  const look = () => checkForUpdate().then((u) => u.available && sendUpdate({ stage: 'available', ...u })).catch(() => {});
+  setTimeout(look, 4000);
+  setInterval(look, 4 * 60 * 60 * 1000);
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && boot());
 });
 app.on('window-all-closed', () => {

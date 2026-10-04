@@ -68,12 +68,31 @@ export function mergeCss(base = '', fragment = '') {
     const decls = parseDecls(match.body);
     for (const [k, v] of parseDecls(r.body)) decls.set(k, v);
     const indent = /\n(\s+)\S/.exec(match.body)?.[1] ?? '  ';
-    const body = `\n${[...decls].map(([k, v]) => `${indent}${k}: ${v};`).join('\n')}\n`;
+    // The closing brace keeps the indentation it had ("    }" inside a page's <style>).
+    const close = /\n([ \t]*)$/.exec(match.body)?.[1] ?? '';
+    const body = `\n${[...decls].map(([k, v]) => `${indent}${k}: ${v};`).join('\n')}\n${close}`;
     edits.push({ start: match.start, end: match.end, text: `${base.slice(match.start, match.start + (base.slice(match.start).indexOf('{')))}{${body}}` });
   }
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   if (appended.length) out = `${out.replace(/\s*$/, '')}\n\n${appended.join('\n\n')}\n`;
   return out;
+}
+
+/** Only CSS rules, no HTML or JS: "h1 {\n  color: green;\n}". */
+export function isCssRules(text = '') {
+  const t = text.replace(/\/\*[\s\S]*?\*\//g, '').trim();
+  if (!t || /<|=>|\b(function|const|let|var|return)\b/.test(t)) return false;
+  // Every block holds "property: value" declarations (JS like "if (x) { y(); }" doesn't).
+  const blocks = t.match(/\{[^{}]*\}/g) || [];
+  return /^(?:@?[^{};]+\{(?:[^{}]|\{[^{}]*\})*\}\s*)+$/.test(t) && blocks.every((b) => /[\w-]\s*:\s*\S/.test(b) || !b.slice(1, -1).trim());
+}
+
+/** CSS for a page: merged into the stylesheet the page links, else into the page's own <style>. */
+async function cssIntoPage(page, f, readKnown) {
+  const linked = /<link[^>]+href=["']([^"':]+\.css)["']/i.exec(page.content)?.[1]?.replace(/^\.?\//, '');
+  const sheet = linked ? await readKnown(linked) : null;
+  if (sheet !== null && linked) return { ...f, path: linked, lang: 'css', before: sheet, content: mergeCss(sheet, f.content), merged: true };
+  return { ...f, path: page.path, lang: 'html', before: page.content, content: mergeCssIntoHtml(page.content, f.content), merged: true };
 }
 
 /** Put CSS into an HTML page: merged into its last <style>, or a new <style> in <head>. */
@@ -84,7 +103,9 @@ export function mergeCssIntoHtml(html = '', css = '') {
   if (last) {
     const merged = mergeCss(last[2], css);
     const at = last.index;
-    return html.slice(0, at) + last[1] + (merged.startsWith('\n') ? '' : '\n') + merged.replace(/\s*$/, '\n') + last[3] + html.slice(at + last[0].length);
+    // Keep the whitespace before </style> as it was.
+    const tail = /\s*$/.exec(last[2])[0] || '\n';
+    return html.slice(0, at) + last[1] + (merged.startsWith('\n') ? '' : '\n') + merged.replace(/\s*$/, tail) + last[3] + html.slice(at + last[0].length);
   }
   const block = `<style>\n${css.trim()}\n</style>\n`;
   if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${block}</head>`);
@@ -226,7 +247,18 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
     }
     return null;
   };
-  for (const f of files) {
+  for (let f of files) {
+    // CSS rules ("h1 { color: green; }") labelled as the page, or with no name: they go in the page's stylesheet
+    // (or its <style>), updating rules that already exist — not spliced into the HTML as if they were HTML.
+    if (f.lang !== 'css' && isCssRules(f.content) && !/\.(m?jsx?|tsx?|py)$/i.test(f.path || '')) {
+      const named = /\.html?$/i.test(f.path || '') ? { path: f.path, content: await readKnown(f.path) } : null;
+      const page = named?.content != null ? named : target && /\.html?$/i.test(target.path) ? target : null;
+      if (page) {
+        writes.push(await cssIntoPage(page, f, readKnown));
+        continue;
+      }
+      f = { ...f, lang: 'css' };
+    }
     // A complete page: replace the page being edited (keeps its name), or save as named.
     if (f.lang === 'html' && isFullHtml(f.content)) {
       const path = f.inferred && target && /\.html?$/i.test(target.path) ? target.path : f.path;
@@ -243,12 +275,8 @@ export async function planCodeSave(files, { target, related = [], edit = false, 
       continue;
     }
     if (f.lang === 'css' && (fragmentOfTarget || (existing && f.content.length < existing.length * 0.6))) {
-      // Merge into the stylesheet the page links, else into the page's own <style>.
-      const linked = target && /<link[^>]+href=["']([^"':]+\.css)["']/i.exec(target.content)?.[1];
-      const sheet = linked ? await readKnown(linked.replace(/^\.?\//, '')) : null;
-      if (existing && !linked) writes.push({ ...f, before: existing, content: mergeCss(existing, f.content), merged: true });
-      else if (sheet !== null && linked) writes.push({ ...f, path: linked.replace(/^\.?\//, ''), before: sheet, content: mergeCss(sheet, f.content), merged: true });
-      else if (target) writes.push({ ...f, path: target.path, lang: 'html', before: target.content, content: mergeCssIntoHtml(target.content, f.content), merged: true });
+      if (existing && !(target && /\.html?$/i.test(target.path))) writes.push({ ...f, before: existing, content: mergeCss(existing, f.content), merged: true });
+      else if (target) writes.push(await cssIntoPage(target, f, readKnown));
       continue;
     }
     // A snippet of an existing page/script: splice the changed lines in where they clearly belong,

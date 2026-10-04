@@ -135,3 +135,23 @@ test('files written as code blocks are saved before the model reads them back', 
   assert.match(await fs.readFile(path.join(dir, 'styles.css'), 'utf8'), /f5e6d3/);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+test('a CSS rule labelled as the page is merged into its <style>, first try', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-css-'));
+  const page = '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>5 Dog Breeds</title>\n  <style>\n    body {\n      font-family: Arial, sans-serif;\n      background-color: red;\n    }\n    h1 {\n      color: white;\n      font-size: 40px;\n    }\n  </style>\n</head>\n<body>\n  <h1>Popular Dog Breeds</h1>\n  <div class="breed"><h2>Golden Retriever</h2></div>\n</body>\n</html>\n';
+  await fs.writeFile(path.join(dir, 'index.html'), page);
+  let calls = 0;
+  // What the 7B coder sent in the bug video: just the rule, under "index.html".
+  const provider = { async *stream() { calls++; yield { type: 'text', text: 'index.html\n```html\nh1 {\n    color: green;\n}\n```' }; yield { type: 'finish', reason: 'stop' }; } };
+  const events = [];
+  const res = await runAgent({ provider, model: 'qwen2.5-coder:7b', workspace: createNodeWorkspace(dir), messages: [{ role: 'user', content: 'change the color of "Popular Dog Breeds" to green' }], mode: 'auto', lite: false, onEvent: (e) => events.push(e) });
+  assert.equal(res.status, 'done');
+  assert.equal(calls, 1, 'no "couldn\'t place the lines", no asking for the whole file');
+  assert.ok(!events.some((e) => e.type === 'nudge'), events.filter((e) => e.type === 'nudge').map((e) => e.text).join(' | '));
+  const after = await fs.readFile(path.join(dir, 'index.html'), 'utf8');
+  assert.match(after, /h1 \{\n\s+color: green;\n\s+font-size: 40px;\n\s+\}/, 'the existing rule is updated, its other properties kept');
+  assert.equal((after.match(/h1 \{/g) || []).length, 1, 'no duplicate rule');
+  assert.match(after, /<h1>Popular Dog Breeds<\/h1>/);
+  assert.equal(after.replace(/h1 \{[^}]*\}/, '').length, page.replace(/h1 \{[^}]*\}/, '').length, 'nothing else changed');
+  await fs.rm(dir, { recursive: true, force: true });
+});

@@ -874,6 +874,11 @@ export async function runAgent({
     const seenBefore = seen.get(sig) || 0;
     seen.set(sig, seenBefore + 1);
     if (seenBefore >= 2) repeats = 2;
+    // The files are written and the model just goes round again (another todo list, another read): the work is done.
+    const savedFiles = [...wroteThisTurn].filter(Boolean);
+    if (savedFiles.length && (repeats >= 1 || (call.name === 'todo' && seenBefore >= 1))) {
+      return finishWith(`Done — saved ${savedFiles.join(', ')}.`);
+    }
     if (repeats >= 2) {
       onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped: the same step three times in a row.' });
       onEvent({
@@ -899,6 +904,14 @@ export async function runAgent({
       missingReads++;
       const files = (await workspace.list('.', 2).catch(() => [])).filter((e) => e.type === 'file').map((e) => e.path);
       output = `${call.args?.path} does not exist. ${files.length ? `The files that exist are: ${files.slice(0, 30).join(', ')}.` : 'The project is empty: nothing has been written yet.'} Do not read files that don't exist and don't apologise.${files.length && !isNewBuild(askedText()) ? '' : ' Write the files for the request now, each one complete.'}`;
+      if (missingReads >= 2 && wroteThisTurn.size) {
+        onEvent({ type: 'tool-end', id: call.id, ok: false, output });
+        const text = `Done — saved ${[...wroteThisTurn].join(', ')}.`;
+        onEvent({ type: 'text', delta: text });
+        messages.push({ role: 'assistant', content: text });
+        onEvent({ type: 'done' });
+        return { messages, status: 'done' };
+      }
       if (missingReads >= 3) {
         onEvent({ type: 'tool-end', id: call.id, ok: false, output });
         onEvent({ type: 'error', error: `The model kept trying to read files that don't exist (${call.args?.path}) instead of writing code, so Buddo stopped it. Try asking again, or a bigger model.` });

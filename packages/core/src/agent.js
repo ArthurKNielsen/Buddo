@@ -4,7 +4,7 @@
 import { analyze, splitThinking } from './parser.js';
 import { executeTool, TOOL_MAP } from './tools.js';
 import { buildSystemPrompt, filesNote, toolSchemas, availableTools } from './prompt.js';
-import { toolCallText, forcedCallSchema, parseForcedCall, promisesAction, findLoop, dropRepeats, sameAnswer, PROTOCOL_EXAMPLE } from './behave.js';
+import { toolCallText, forcedCallSchema, parseForcedCall, promisesAction, findLoop, dropRepeats, sameAnswer, PROTOCOL_EXAMPLE, strictReplySchema, readStrictReply, parseStrictReply } from './behave.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { missingColors } from './colors.js';
@@ -26,6 +26,9 @@ const copiedExample = (code = '') =>
 
 // "Tests pass", "I ran it": only true when a command actually ran.
 const CLAIMS_RAN = /\b(?:i(?:'ve|’ve| have)? (?:ran|run|tested|executed)|tests? (?:all )?(?:pass(?:ed|es)?|succeed(?:ed)?)|it (?:works|runs) (?:now|fine|correctly))\b/i;
+
+// "How do I…", "Why is…": a question, answered in words (never forced into a tool).
+const QUESTION_START = /^\s*(what|why|how|when|where|who|which|explain|is|are|does|do|did|can|could|should|would)\b/i;
 
 // What each model can do (Ollama's /api/show), asked once per model.
 const capsCache = new Map();
@@ -174,22 +177,27 @@ export async function runAgent({
   quickEdits = true,
   // 'auto': built-in tool calling for models that support it (Ollama says "tools"); true / false to force it.
   nativeTools = 'auto',
+  // Strict replies: every reply is a JSON object the engine enforces token by token (Ollama's `format`), so the
+  // model can't skip the tools; a build request can't even finish before a file is written. 'auto': on for
+  // engines that support it (Ollama), except tiny models in lite mode.
+  strictTools = 'auto',
 }) {
   const ctx = context || (await gatherContext(workspace));
+  const strict = strictTools === true || (strictTools === 'auto' && !lite && !!provider.supports?.format);
   const native =
-    !lite && nativeTools !== false && !!provider.supports?.tools && (nativeTools === true || (nativeTools === 'auto' && provider.id === 'ollama' && (await modelCapabilities(provider, model)).includes('tools')));
+    !strict && !lite && nativeTools !== false && !!provider.supports?.tools && (nativeTools === true || (nativeTools === 'auto' && provider.id === 'ollama' && (await modelCapabilities(provider, model)).includes('tools')));
   const schemas = native ? toolSchemas(workspace, { profile }) : null;
   // A reply that only promises to act ("I'll create main.py") is asked again with its answer forced into a tool
   // call: the engine only lets it write {"tool": …, "args": …}.
   const forceTools = availableTools(workspace, { lite, profile });
-  const canForce = !!provider.supports?.format && mode !== 'plan';
+  const canForce = !strict && !!provider.supports?.format && mode !== 'plan';
   let forceNext = null;
   let forced = 0;
   let ranCommand = false;
   let repeatNudged = false;
   // The file list rides along with the user's message, not in the system prompt: the prompt stays word for word the
   // same between messages, so Ollama / llama.cpp reuse what they already read (the "reading your message" wait).
-  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx, filesInSystem: false, nativeTools: native });
+  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx, filesInSystem: false, nativeTools: native, strictTools: strict });
   const note = filesNote(ctx, { lite });
   const alwaysAllowed = new Set();
   let wroteFiles = false;
@@ -204,6 +212,13 @@ export async function runAgent({
   const asked = lastUserText().split('\n\n[Current ')[0];
   // The message the file list is attached to (on the wire only, never saved in the chat).
   const requestMsg = lastUserMsg();
+  // New files the user's message names: a strict reply can't say "done" until each one is written.
+  const namedFiles = [];
+  if (strict) {
+    for (const m of asked.split('\n\n[Current ')[0].matchAll(/(?:^|[\s@`'"(,])((?:[\w-]+\/)*[\w-]+\.(?:html?|css|m?js|jsx|tsx?|py|json|md|txt|java|go|rs|rb|php|sh|c|cpp|cs|kt|swift|lua|sql|yml|yaml|toml))(?=$|[\s`'"),.:;!?])/gi)) {
+      if (!namedFiles.includes(m[1]) && (await workspace.read(m[1]).catch(() => null)) === null) namedFiles.push(m[1]);
+    }
+  }
   const askedText = () => asked;
 
   // A request for another language ("write a python script") is never about the chat's web page.
@@ -527,7 +542,7 @@ export async function runAgent({
 
     const at = messages.indexOf(requestMsg);
     // Models on Buddo's text protocol see one tiny worked example first (they copy patterns better than rules).
-    const wire = [{ role: 'system', content: system }, ...(native || lite ? [] : PROTOCOL_EXAMPLE), ...compactForModel(slimHistory(messages), contextBudget).map((m, i) => (i === at && note ? { ...m, content: `${m.content}\n\n${note}` } : m))].map((m) =>
+    const wire = [{ role: 'system', content: system }, ...(native || strict || lite ? [] : PROTOCOL_EXAMPLE), ...compactForModel(slimHistory(messages), contextBudget).map((m, i) => (i === at && note ? { ...m, content: `${m.content}\n\n${note}` } : m))].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
     );
     // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").
@@ -543,7 +558,15 @@ export async function runAgent({
     try {
       // After an empty reply, ask for a fresh start (engines that cache the conversation drop that cache).
       const opts = { num_ctx: contextBudget, temperature: freshNext ? Math.max(temperature, 0.6) : temperature, fresh: freshNext };
-      if (forcing) opts.format = forcedCallSchema(forceTools);
+      if (strict) {
+        // Asked to make or change something and nothing is written yet: "done" isn't an option (for a few steps,
+        // so a model that really can't still gets to say why).
+        const canWrite = mode !== 'plan' && autoSaveCode && !!workspace.write;
+        // Files the request names ("index.html, styles.css and script.js") must all be written before it's done.
+        const missing = canWrite && step < 12 ? namedFiles.filter((f) => !wroteThisTurn.has(f)) : [];
+        const mustAct = missing.length > 0 || (canWrite && !wroteFiles && step < 6 && (isNewBuild(askedText()) || looksLikeEdit(askedText()) || !!removal()) && !QUESTION_START.test(askedText()));
+        opts.format = strictReplySchema(forceTools, { allowDone: !mustAct, think: thinkAloud });
+      } else if (forcing) opts.format = forcedCallSchema(forceTools);
       else if (schemas) opts.tools = schemas;
       freshNext = false;
       for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: opts })) {
@@ -560,6 +583,37 @@ export async function runAgent({
         }
         if (chunk.type === 'usage') {
           usage = chunk;
+          continue;
+        }
+        // A strict reply streams in as JSON: show its "say" (and the code being written) as it arrives.
+        if (strict) {
+          if (chunk.type !== 'text') continue;
+          raw += chunk.text;
+          const r = readStrictReply(raw);
+          if (r.think.length > sentThink) {
+            onEvent({ type: 'thinking', delta: r.think.slice(sentThink) });
+            sentThink = r.think.length;
+          }
+          if (r.say.length > sentProse) {
+            onEvent({ type: 'text', delta: r.say.slice(sentProse) });
+            sentProse = r.say.length;
+          }
+          if (r.tool && r.tool !== 'done' && r.argsAt !== -1) {
+            if (!announced) {
+              announced = true;
+              onEvent({ type: 'tool-preparing', name: r.tool });
+            }
+            const size = Object.values(r.args).reduce((n, v) => n + v.length, 0);
+            if (size !== streamedSize) {
+              streamedSize = size;
+              onEvent({ type: 'tool-stream', name: r.tool, args: r.args, writing: r.args.content !== undefined ? 'content' : null });
+            }
+          }
+          if (findLoop(r.say) >= 0) {
+            loopAt = findLoop(r.say);
+            ctrl.abort();
+            break;
+          }
           continue;
         }
         // A forced reply is JSON: collect it quietly, it becomes a tool call below.
@@ -623,6 +677,19 @@ export async function runAgent({
     if (usage) onEvent({ type: 'usage', ...usage });
     if (finish) onEvent({ type: 'finish', reason: finish });
 
+    // The strict reply becomes what the rest of the loop knows: the words, then the tool call in the text protocol.
+    if (strict && raw.trim()) {
+      const j = parseStrictReply(raw);
+      if (j) {
+        const call = j.tool !== 'done' && forceTools.some((t) => t.name === j.tool) ? toolCallText(j.tool, j.args) : '';
+        raw = `${j.say.trim()}${call ? `${j.say.trim() ? '\n\n' : ''}${call}` : ''}`;
+        sentProse = Math.min(sentProse, j.say.trim().length);
+      } else if (loopAt < 0) {
+        // Cut off before the JSON closed (out of room): keep what it said, and the call so far if it has one.
+        const r = readStrictReply(raw);
+        raw = r.tool && r.tool !== 'done' ? `${r.say.trim()}\n\n<tool:${r.tool}>` : r.say.trim();
+      } else raw = readStrictReply(raw).say;
+    }
     if (forcing) {
       const fc = parseForcedCall(raw, forceTools.map((t) => t.name));
       raw = fc ? `${forcing.prose}\n\n${toolCallText(fc.name, fc.args)}` : forcing.prose;

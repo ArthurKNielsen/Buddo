@@ -8,7 +8,7 @@ import { findLoop, dropRepeats, sameAnswer, promisesAction, parseForcedCall, too
 import { analyze } from '../src/parser.js';
 import { createNodeWorkspace } from '../src/node-workspace.js';
 
-async function chat(prompt, reply, { history = [], supports = {}, caps = [], files = {}, model = 'qwen2.5-coder:7b' } = {}) {
+async function chat(prompt, reply, { history = [], supports = {}, caps = [], files = {}, model = 'qwen2.5-coder:7b', opts = {} } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-behave-'));
   for (const [f, c] of Object.entries(files)) await fs.writeFile(path.join(dir, f), c);
   const ws = createNodeWorkspace(dir);
@@ -25,7 +25,7 @@ async function chat(prompt, reply, { history = [], supports = {}, caps = [], fil
   };
   const events = [];
   const messages = [...history, { role: 'user', content: prompt }];
-  const res = await runAgent({ provider, model, workspace: ws, messages, mode: 'yolo', onEvent: (e) => events.push(e) });
+  const res = await runAgent({ provider, model, workspace: ws, messages, mode: 'yolo', onEvent: (e) => events.push(e), ...opts });
   const read = (f) => fs.readFile(path.join(dir, f), 'utf8').catch(() => null);
   return { res, events, seen, read, messages };
 }
@@ -55,7 +55,7 @@ test('a reply that only promises to act is forced into a tool call', async () =>
     if (options.format) yield { type: 'text', text: JSON.stringify({ tool: 'write_file', args: { path: 'date.py', content: 'import datetime\nprint(datetime.date.today())\n' } }) };
     else if (seen0++ === 0) yield { type: 'text', text: "Sure! I'll create date.py for you now." };
     else yield { type: 'text', text: 'Created date.py.' };
-  }, { supports: { format: true } });
+  }, { supports: { format: true }, opts: { strictTools: false } });
   assert.match(await read('date.py'), /datetime/);
   assert.ok(seen.some((x) => x.options.format?.properties?.tool));
   assert.ok(events.some((e) => e.type === 'nudge' && /said it would/.test(e.text)));
@@ -121,4 +121,50 @@ test('the Ollama provider sends tools and reads tool calls back', async () => {
   for await (const c of p.stream({ model: 'm', messages: [], options: { tools: [{ type: 'function' }] } })) out.push(c);
   assert.equal(body.tools.length, 1);
   assert.deepEqual(out[0], { type: 'tool_call', name: 'read_file', args: { path: 'a.py', start: '3' } });
+});
+
+const json = (o) => ({ type: 'text', text: JSON.stringify(o) });
+
+test('strict replies: a build request cannot finish before a file is written', async () => {
+  const { read, seen, events } = await chat('make a python script that prints the date', function* ({ options, i }) {
+    const choices = options.format.properties.tool.enum;
+    if (i === 0) {
+      assert.ok(!choices.includes('done'), 'done is not an option yet');
+      // Streams in pieces, like a real engine.
+      const text = JSON.stringify({ say: 'Writing date.py.', tool: 'write_file', args: { path: 'date.py', content: 'import datetime\nprint(datetime.date.today())\n' } });
+      for (let k = 0; k < text.length; k += 7) yield { type: 'text', text: text.slice(k, k + 7) };
+    } else {
+      assert.ok(choices.includes('done'));
+      yield json({ say: 'Created date.py: run it with python date.py.', tool: 'done', args: {} });
+    }
+  }, { supports: { format: true } });
+  assert.equal(await read('date.py'), 'import datetime\nprint(datetime.date.today())\n');
+  assert.equal(seen.length, 2);
+  assert.ok(events.some((e) => e.type === 'tool-stream' && e.args.content?.includes('datetime')), 'code shows while it is written');
+  const said = events.filter((e) => e.type === 'text').map((e) => e.delta).join('');
+  assert.match(said, /Writing date\.py\.[\s\S]*Created date\.py/);
+  assert.doesNotMatch(said, /"tool"|\{/, 'the user never sees the JSON');
+  assert.match(seen[0].messages[0].content, /Every reply is ONE JSON object/);
+});
+
+test('strict replies: a plain question can be answered right away', async () => {
+  const { seen, messages } = await chat('what is a list comprehension', function* ({ options }) {
+    assert.ok(options.format.properties.tool.enum.includes('done'));
+    yield json({ say: 'A short way to build a list: [x * 2 for x in nums].', tool: 'done', args: {} });
+  }, { supports: { format: true } });
+  assert.equal(seen.length, 1);
+  assert.match(messages[messages.length - 1].content, /short way/);
+});
+
+test('strict replies: every file the request names gets written before it can finish', async () => {
+  const files = ['index.html', 'styles.css', 'script.js'];
+  const enums = [];
+  const { read, seen } = await chat('Build a landing page. Make 3 files: index.html, styles.css, script.js (linked together).', function* ({ options, i }) {
+    enums.push(options.format.properties.tool.enum.includes('done'));
+    if (i < 3) yield json({ say: '', tool: 'write_file', args: { path: files[i], content: `/* ${files[i]} */\nfile ${i}\n` } });
+    else yield json({ say: 'Built the page in index.html, styles.css and script.js.', tool: 'done', args: {} });
+  }, { supports: { format: true } });
+  for (const f of files) assert.match(await read(f), new RegExp(f.replace('.', '\\.')));
+  assert.deepEqual(enums, [false, false, false, true], '"done" only after all three files');
+  assert.equal(seen.length, 4);
 });

@@ -118,6 +118,23 @@ export default function SettingsModal() {
                 </div>
                 <span className="hint">A ~9× shorter prompt and smaller context so tiny models answer fast. Auto turns it on for Pocket models.</span>
               </div>
+              {s.engine === 'ollama' && (
+                <div className="field">
+                  <label>Always use tools</label>
+                  <div className="seg">
+                    {[
+                      ['auto', 'On'],
+                      ['off', 'Off'],
+                    ].map(([id, l]) => (
+                      <button key={id} className={(s.strictTools === 'off' ? 'off' : 'auto') === id ? 'on' : ''} onClick={() => setSettings({ strictTools: id })}>
+                        {(s.strictTools === 'off' ? 'off' : 'auto') === id && <motion.div layoutId="strict-pill" className="seg-pill" />}
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hint">Ollama only lets the model answer in Buddo's reply format, so it can't skip the tools: asked to build something, it can't finish until the files are written. Turn off only if a model writes worse code this way.</span>
+                </div>
+              )}
               <div className="field">
                 <label>Think out loud</label>
                 <div className="seg">

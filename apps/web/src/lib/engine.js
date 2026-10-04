@@ -254,7 +254,8 @@ let webllmLib = null;
 async function loadOnGpu(model) {
   const status = (text, progress = 0) => useStore.setState({ webllm: { text, progress } });
   status('Loading WebLLM runtime…');
-  webllmLib ||= await import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2');
+  // Bundled with the site: a CDN (esm.run) is often blocked on school/work networks and by ad blockers.
+  webllmLib ||= await import('@mlc-ai/web-llm').catch(() => import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2'));
   const onProgress = (p) => status(p.text, p.progress);
   const ctx = { context_window_size: isPocketModel(model) ? 4096 : 8192 };
   webllmReady = '';

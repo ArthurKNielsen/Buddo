@@ -12,7 +12,7 @@ export const TOOLS = [
     lite: true,
     params: ['path', 'depth'],
     desc: 'List files and folders as a tree. `depth` defaults to 2.',
-    example: '<tool:list_dir>\n<path>src</path>\n</tool:list_dir>',
+    example: () => '<tool:list_dir>\n<path>.</path>\n</tool:list_dir>',
   },
   {
     name: 'read_file',
@@ -20,21 +20,21 @@ export const TOOLS = [
     lite: true,
     params: ['path', 'start', 'end'],
     desc: 'Read a file. Output has line numbers (do NOT copy them into edits). Optional `start`/`end` line numbers for big files.',
-    example: '<tool:read_file>\n<path>index.html</path>\n</tool:read_file>',
+    example: (ex) => `<tool:read_file>\n<path>${ex.page}</path>\n</tool:read_file>`,
   },
   {
     name: 'search',
     kind: 'read',
     params: ['pattern', 'path', 'glob'],
     desc: 'Search file contents with a regex (case-insensitive). Returns file:line: text. Optional `path` folder and `glob` filter like *.ts',
-    example: '<tool:search>\n<pattern>function login</pattern>\n</tool:search>',
+    example: () => '<tool:search>\n<pattern><button</pattern>\n</tool:search>',
   },
   {
     name: 'glob',
     kind: 'read',
     params: ['pattern'],
-    desc: 'Find files by name pattern, e.g. **/*.test.js or src/**/*.css',
-    example: '<tool:glob>\n<pattern>**/*.py</pattern>\n</tool:glob>',
+    desc: 'Find files by name pattern, e.g. **/*.css or *.html',
+    example: () => '<tool:glob>\n<pattern>**/*.css</pattern>\n</tool:glob>',
   },
   {
     name: 'write_file',
@@ -42,7 +42,7 @@ export const TOOLS = [
     lite: true,
     params: ['path', 'content'],
     desc: 'Create or fully overwrite a file with raw content (no escaping needed). Prefer edit_file for small changes to existing files.',
-    example: '<tool:write_file>\n<path>hello.py</path>\n<content>\nprint("hi")\n</content>\n</tool:write_file>',
+    example: (ex) => `<tool:write_file>\n<path>${ex.css}</path>\n<content>\nbody {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n}\n</content>\n</tool:write_file>`,
   },
   {
     name: 'edit_file',
@@ -50,7 +50,7 @@ export const TOOLS = [
     lite: true,
     params: ['path', 'old', 'new', 'all'],
     desc: 'Replace an exact snippet in a file. `old` must match the file exactly (copy it from read_file, without line numbers) and be unique; include surrounding lines if needed. Set <all>true</all> to replace every occurrence.',
-    example: '<tool:edit_file>\n<path>src/app.js</path>\n<old>\nconst port = 3000;\n</old>\n<new>\nconst port = process.env.PORT || 3000;\n</new>\n</tool:edit_file>',
+    example: (ex) => `<tool:edit_file>\n<path>${ex.css}</path>\n<old>\n  color: white;\n</old>\n<new>\n  color: green;\n</new>\n</tool:edit_file>`,
   },
   {
     name: 'run_command',
@@ -105,24 +105,29 @@ export const TOOLS = [
     media: true,
     lite: true,
     params: ['input', 'steps', 'out'],
-    desc: `Edit videos (and photos) with simple steps, one per line, applied in order. \`input\`: one or more files, one per line — several are joined in order (photos become 3s clips; change with "stills 4"). Steps (times are seconds or m:ss):
+    // Only what this workspace can do: the website has no speech recognition (captions), no browser to render
+    // HTML overlays, and makes .mp4/.gif only.
+    desc: (caps) => `Edit videos (and photos) with simple steps, one per line, applied in order. \`input\`: one or more files, one per line — several are joined in order (photos become 3s clips; change with "stills 4"). Steps (times are seconds or m:ss):
   trim 0:05-0:20 (keep only that part) · cut 0:03-0:04.5 (remove a part) · speed 2 (0.5 = slow motion)
   crop vertical|square|wide|WxH (fill + crop for Shorts/Reels) · fit vertical (whole frame on a blurred background) · rotate 90 · flip
-  text "Hello!" top|center|bottom [0:01-0:03] [pop|slide|drop|fade|type|none] [sound pop] [size 72] [color yellow] [box] · title "Big Title" [0:00-0:02] (titles pop in, text slides up by default; type = typewriter) · captions (auto subtitles from speech)
+  text "Hello!" top|center|bottom [0:01-0:03] [pop|slide|drop|fade|type|none] [sound pop] [size 72] [color yellow] [box] · title "Big Title" [0:00-0:02] (titles pop in, text slides up by default; type = typewriter)${caps.audio ? ' · captions (auto subtitles from speech)' : ''}
   sound pop|whoosh|swipe|ding|success|click|boom|rise|beep 0:02 [volume 0.8] (sound effects) · music song.mp3 [volume 0.3] [replace] · volume 1.5 · mute
   transition fade|slide|wipe|zoom|circle|smooth|blur|pixel|black|white [0.5] [whoosh] (between joined clips) · zoom 1.3 0:04-0:05 (punch zoom) · zoom slow (slow push-in) · shake 0:06-0:07 · flash 0:08 · progress [top] [color yellow]
   fade in 0.5 · fade out 1 · color bw|vivid|warm|cool|bright|dark|vintage|cinematic
-  logo logo.png [top-right] [size 15%] · overlay sticker.png [center] [0:02-0:05] · overlay lower-third.html [0:02-0:07] (an animated HTML/CSS UI element with a transparent background, rendered on top of the video)
-\`out\`: .mp4 (default videos/NAME-edit.mp4), .webm, .mov or .gif. Never overwrites the input. Afterwards you see key frames of the result.`,
-    example: '<tool:edit_video>\n<input>clip.mp4</input>\n<steps>\ntrim 0:02-0:32\ncrop vertical\ntitle "Wait for it…" 0:00-0:02 sound pop\nzoom 1.25 0:06-0:07\nsound boom 0:06\ntext "No way!" top 0:06-0:09 slide sound whoosh\nmusic beat.mp3 volume 0.25\nprogress\nfade out 1\n</steps>\n<out>videos/clip-short.mp4</out>\n</tool:edit_video>',
+  logo logo.png [top-right] [size 15%] · overlay sticker.png [center] [0:02-0:05]${caps.browser ? ' · overlay lower-third.html [0:02-0:07] (an animated HTML/CSS UI element with a transparent background, rendered on top of the video)' : ''}
+\`out\`: ${caps.outputs.join(', ')} (default videos/NAME-edit.mp4). Never overwrites the input. Afterwards you see key frames of the result.`,
+    example: (ex) => `<tool:edit_video>\n<input>${ex.video}</input>\n<steps>\ntrim 0:02-0:32\ncrop vertical\ntitle "Wait for it…" 0:00-0:02 sound pop\nzoom 1.25 0:06-0:07\nsound boom 0:06\ntext "No way!" top 0:06-0:09 slide sound whoosh\nprogress\nfade out 1\n</steps>\n<out>videos/short.mp4</out>\n</tool:edit_video>`,
   },
   {
     name: 'watch_video',
     kind: 'read',
     media: true,
     params: ['path', 'start', 'end', 'frames'],
-    desc: 'Watch a video file (mp4, mov, webm…). You get scene cuts, timestamped key frames (attached as ONE contact-sheet image, read left→right, top→bottom), objects in each frame, and what it sounds like (speech transcript with timestamps, sounds/music, loudness). Optional `start`/`end` (seconds or m:ss) to zoom into a part, `frames` (default 12, max 32) for more detail.',
-    example: '<tool:watch_video>\n<path>clip.mp4</path>\n</tool:watch_video>',
+    desc: (caps) =>
+      caps.audio
+        ? 'Watch a video file (mp4, mov, webm…). You get scene cuts, timestamped key frames (attached as ONE contact-sheet image, read left→right, top→bottom), objects in each frame, and what it sounds like (speech transcript with timestamps, sounds/music, loudness). Optional `start`/`end` (seconds or m:ss) to zoom into a part, `frames` (default 12, max 32) for more detail.'
+        : 'Watch a video file (mp4, mov, webm…). You get its length and size, timestamped key frames (attached as ONE contact-sheet image, read left→right, top→bottom) and the loudest moment (usually the best part). There is no speech transcript or object detection here. Optional `frames` (default 8, max 16) for more detail.',
+    example: (ex) => `<tool:watch_video>\n<path>${ex.video}</path>\n</tool:watch_video>`,
   },
   {
     name: 'listen_audio',
@@ -154,7 +159,7 @@ export const TOOLS = [
     kind: 'meta',
     params: ['items'],
     desc: 'Track a plan for multi-step tasks. One item per line as "[ ] task", "[~] in progress" or "[x] done". Send the FULL list each time.',
-    example: '<tool:todo>\n<items>\n[x] Read the router\n[~] Add /health endpoint\n[ ] Run tests\n</items>\n</tool:todo>',
+    example: (ex) => `<tool:todo>\n<items>\n[x] Write ${ex.page}\n[~] Style it in ${ex.css}\n[ ] Add the menu in ${ex.js}\n</items>\n</tool:todo>`,
   },
 ];
 

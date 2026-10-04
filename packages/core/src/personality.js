@@ -78,5 +78,7 @@ export function parseLearned(text) {
     .split('\n')
     .map((l) => l.replace(/^\s*[-*•]\s*/, '').trim())
     .filter((l) => l.length > 6 && l.length < 200 && !/^none$/i.test(l))
+    // File names are about one project on one day, not the user: a remembered "has src/app.js" haunts every chat.
+    .filter((l) => !/(^|[\s/"'`(])[\w.-]+\.(m?jsx?|tsx?|html?|css|s[ac]ss|py|json|md|vue|svelte|mp4|mov|mp3)\b/i.test(l))
     .slice(0, 5);
 }

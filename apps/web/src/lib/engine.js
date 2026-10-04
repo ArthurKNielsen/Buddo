@@ -19,7 +19,7 @@ const views = new Map();
 function withBrowserMedia(ws) {
   if (ws.media || !ws.writeBinary) return ws;
   const lazy = (name) => async (args) => (await import('./browser-media.js'))[name](ws, args);
-  ws.media = { edit_video: lazy('editVideo'), watch_video: lazy('watchVideo') };
+  ws.media = { edit_video: lazy('editVideo'), watch_video: lazy('watchVideo'), outputs: ['.mp4', '.gif'] };
   return ws;
 }
 

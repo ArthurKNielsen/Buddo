@@ -63,7 +63,8 @@ test('lite prompt is much shorter and keeps only essential tools', () => {
   const full = buildSystemPrompt({ workspace: ws, profile: {} });
   const lite = buildSystemPrompt({ workspace: ws, profile: {}, lite: true });
   const ratio = estimateTokens(full) / estimateTokens(lite);
-  assert.ok(ratio > 4, `full ${estimateTokens(full)} vs lite ${estimateTokens(lite)} tokens`);
+  // The full prompt got leaner too (no invented example files), so the gap is a bit smaller than it was.
+  assert.ok(ratio > 3.5 && estimateTokens(lite) < 700, `full ${estimateTokens(full)} vs lite ${estimateTokens(lite)} tokens`);
   assert.deepEqual(availableTools(ws, { lite: true }).map((t) => t.name).sort(), ['edit_file', 'list_dir', 'read_file', 'remember', 'run_command', 'web_search', 'write_file']);
   assert.ok(full.includes('LOOK AT YOUR OWN WORK'));
   assert.ok(isTinyModel('qwen2.5-coder:0.5b') && isTinyModel('SmolLM2-360M-Instruct-q4f16_1-MLC') && !isTinyModel('qwen2.5-coder:7b'));

@@ -94,10 +94,13 @@ export async function gatherContext(workspace) {
   let tree = '';
   let memory = '';
   let names = null;
+  // Every file that exists, so the prompt can say exactly which ones there are (models invent files otherwise).
+  let files = null;
   try {
     const entries = await workspace.list('.', 2);
     tree = formatTree(entries, '.', 150);
     names = new Set(entries.map((e) => e.path));
+    files = (await workspace.list('.', 8).catch(() => entries)).filter((e) => e.type === 'file').map((e) => e.path);
   } catch {}
   for (const f of ['BUDDO.md', 'buddo.md', 'CLAUDE.md', 'AGENTS.md']) {
     if (names && !names.has(f)) continue;
@@ -106,7 +109,7 @@ export async function gatherContext(workspace) {
       if (memory) break;
     } catch {}
   }
-  return { tree, memory };
+  return { tree, memory, files };
 }
 
 function linkSignal(parent) {

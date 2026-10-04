@@ -187,6 +187,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     vision,
     lite,
     thinkAloud: thinkAloud(settings),
+    strictTools: { on: true, off: false }[settings.strictTools] ?? 'auto',
     profile: st.profile,
     temperature: settings.temperature,
     context,

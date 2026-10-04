@@ -117,3 +117,88 @@ export const PROTOCOL_EXAMPLE = [
   { role: 'user', content: '<tool_result name="write_file">\nCreated notes.txt (1 line).\n</tool_result>' },
   { role: 'assistant', content: 'Created notes.txt.' },
 ];
+
+// ── Strict replies ──
+// With constrained decoding (Ollama's `format`) every reply is ONE JSON object of this shape, token by token: the
+// model can't answer in a way that skips the tools. {"think"?, "say", "tool", "args"}: `say` is what the user
+// reads, `tool` the tool to call, or "done" when the work is finished.
+
+/**
+ * The shape of one strict reply. allowDone false: "done" isn't one of the choices, so the model has to call a
+ * tool (a build request before anything was written).
+ */
+export function strictReplySchema(tools, { allowDone = true, think = false } = {}) {
+  const params = [...new Set(tools.flatMap((t) => t.params))];
+  const names = tools.map((t) => t.name);
+  return {
+    type: 'object',
+    properties: {
+      ...(think ? { think: { type: 'string' } } : {}),
+      say: { type: 'string' },
+      tool: { type: 'string', enum: allowDone ? [...names, 'done'] : names },
+      args: { type: 'object', properties: Object.fromEntries(params.map((p) => [p, { type: 'string' }])) },
+    },
+    required: [...(think ? ['think'] : []), 'say', 'tool', 'args'],
+  };
+}
+
+/**
+ * A JSON string value that may still be streaming in: {value, done}, or null before its key shows up.
+ * `from`: where to start looking (the "args" object, so a "say" inside code isn't mistaken for the reply's).
+ */
+export function partialJsonString(raw = '', key, from = 0) {
+  const m = new RegExp(`"${key}"\\s*:\\s*"`).exec(raw.slice(from));
+  if (!m) return null;
+  let i = from + m.index + m[0].length;
+  let out = '';
+  while (i < raw.length) {
+    const c = raw[i];
+    if (c === '"') return { value: out, done: true };
+    if (c === '\\') {
+      const n = raw[i + 1];
+      if (n === undefined) break;
+      if (n === 'u') {
+        const hex = raw.slice(i + 2, i + 6);
+        if (hex.length < 4) break;
+        out += String.fromCharCode(parseInt(hex, 16));
+        i += 6;
+        continue;
+      }
+      out += { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' }[n] ?? n;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return { value: out, done: false };
+}
+
+/** What a streaming strict reply says so far: { think, say, tool, args (path/content so far), argsAt }. */
+export function readStrictReply(raw = '') {
+  const argsAt = raw.search(/"args"\s*:/);
+  const head = argsAt === -1 ? raw : raw.slice(0, argsAt);
+  const args = {};
+  if (argsAt !== -1) for (const k of ['path', 'content', 'command', 'old', 'new']) {
+    const v = partialJsonString(raw, k, argsAt);
+    if (v) args[k] = v.value;
+  }
+  return {
+    think: partialJsonString(head, 'think')?.value || '',
+    say: partialJsonString(head, 'say')?.value || '',
+    tool: partialJsonString(head, 'tool')?.value || '',
+    args,
+    argsAt,
+  };
+}
+
+/** The finished strict reply, or null when it isn't valid JSON (cut off). */
+export function parseStrictReply(raw = '') {
+  try {
+    const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+    const args = Object.fromEntries(Object.entries(j.args || {}).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]));
+    return { think: String(j.think || ''), say: String(j.say || ''), tool: String(j.tool || 'done'), args };
+  } catch {
+    return null;
+  }
+}

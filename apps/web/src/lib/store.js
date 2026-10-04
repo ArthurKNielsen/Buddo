@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   gpuBroken: false, // set when this GPU failed the correctness check even in f32
   liveCode: true, // show code while Buddo is writing it
   lite: 'auto', // auto | on | off — short prompt + small context for tiny models
+  strictTools: 'auto', // auto | on | off — every reply is JSON the engine enforces, so tools always get used (Ollama)
   mode: 'ask',
   // 8k fits a 7B model's memory on most GPUs; 16k often doesn't, and Ollama then runs part of the model on the CPU
   // (reading every message gets many times slower). Long chats are compacted to fit.

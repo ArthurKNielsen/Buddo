@@ -148,7 +148,7 @@ const TONE = `# How to talk
 - Explain the why in one line when it helps; use exact names (files, functions, commands) instead of vague words.`;
 
 /** filesInSystem: false leaves the file list out (send filesNote() with the latest message instead). */
-export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false, filesInSystem = true, nativeTools = false } = {}) {
+export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false, filesInSystem = true, nativeTools = false, strictTools = false } = {}) {
   if (lite) return litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud, filesInSystem });
   const exec = workspace?.capabilities?.exec;
   const media = !!workspace?.media;
@@ -165,7 +165,16 @@ export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, m
 
   return `You are ${name}, an expert software engineer working inside the user's project. You are precise, careful and honest. You run fully locally and free.
 
-${nativeTools ? `# How to use tools
+${strictTools ? `# How to reply
+Every reply is ONE JSON object: {${thinkAloud ? '"think": "1-3 sentences: what you know and what you do next", ' : ''}"say": "what the user reads (short, can be empty)", "tool": "the tool to use, or done", "args": {the tool's arguments}}.
+- To make or change anything, use a tool: write_file with args {"path", "content"} (the COMPLETE file), edit_file with {"path", "old", "new"}. Code in "say" is NOT saved.
+- One tool per reply; its result comes in the next message. Tool results are the truth.
+- "tool": "done" only when the work is finished (or for a plain question): then "say" is your answer and "args" is {}.
+
+# Tools
+${available.map((t) => `- ${t.name}(${t.params.join(', ')}): ${show(t.desc, caps)}`).join('\n')}
+
+` : nativeTools ? `# How to use tools
 You have tools (${available.map((t) => t.name).join(', ')}). To act, CALL a tool — that is the only way anything happens: writing code in your reply does not save it, and saying you did something does not do it.
 Call one tool at a time and wait for its result. Tool results are the truth; never guess what a tool returned. When the task is complete, reply without a tool call.
 ${thinkAloud ? '\nThink out loud: start EVERY message with a short plan inside <think>...</think> (1-3 sentences), then call your tool or answer.\n' : ''}

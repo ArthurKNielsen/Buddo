@@ -99,6 +99,9 @@ export async function submit(input, attachments = []) {
   return send(text, { attachments });
 }
 
+/** The context size a chat runs with. Every call to the model uses this same size: Ollama reloads the model when it changes. */
+const chatContext = (settings, lite) => (lite ? 4096 : settings.engine === 'webllm' ? 8192 : settings.ctx);
+
 export async function send(prompt, { display, mode, attachments = [], hidden = false } = {}) {
   const st = S();
   const session = st.ensureSession();
@@ -178,7 +181,7 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
     messages: history,
     mode: mode || settings.mode,
     signal: ctrl.signal,
-    contextBudget: lite ? 4096 : settings.engine === 'webllm' ? 8192 : settings.ctx,
+    contextBudget: chatContext(settings, lite),
     // Tiny/CPU models: each step re-reads the whole prompt, so a runaway loop costs minutes. "continue" resumes.
     maxSteps: lite ? 8 : undefined,
     vision,
@@ -422,18 +425,111 @@ export async function runUserCommand(command) {
   const st = S();
   const s = st.ensureSession();
   const id = uid();
-  st.patchSession(s.id, (x) => ({ terminal: [...x.terminal, { id, command, output: '', code: null, source: 'user', at: Date.now() }] }));
+  // With an id the command keeps its input open: the terminal sends what you type to it (Python's input()).
+  const runId = ws.sendInput ? `run-${id}` : null;
+  st.patchSession(s.id, (x) => ({ terminal: [...x.terminal, { id, command, output: '', code: null, source: 'user', at: Date.now(), runId }] }));
   let output = '';
   const update = (patch) =>
     S().patchSession(s.id, (x) => ({ terminal: x.terminal.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
-  const r = await ws.run(command, {
-    onData: (d) => {
-      output += d;
-      update({ output });
-    },
-  });
-  update({ output: [r.stdout, r.stderr].filter(Boolean).join('\n') || output, code: r.code });
+  try {
+    const r = await ws.run(command, {
+      id: runId || undefined,
+      timeout: runId ? 3600000 : undefined,
+      // Appended to what's shown (not a copy kept here), so the answers typed in with sendTerminalInput stay in place.
+      onData: (d) => {
+        output += d;
+        S().patchSession(s.id, (x) => ({ terminal: x.terminal.map((t) => (t.id === id ? { ...t, output: t.output + d } : t)) }));
+      },
+    });
+    if (!output) update({ output: [r.stdout, r.stderr].filter(Boolean).join('\n') });
+    update({ code: r.code, runId: null });
+  } catch (e) {
+    update({ output: `${output}${output ? '\n' : ''}${e.message}`, code: 1, runId: null });
+  }
   refreshFileIndex();
+}
+
+/** Send a line to a command that is waiting for input; it shows in the log like a real terminal echo. */
+export async function sendTerminalInput(runId, text) {
+  const ws = getWorkspace();
+  const s = S().activeSession();
+  if (!s || !ws.sendInput) return;
+  S().patchSession(s.id, (x) => ({ terminal: x.terminal.map((t) => (t.runId === runId ? { ...t, output: `${t.output}${text}\n` } : t)) }));
+  try {
+    await ws.sendInput(runId, `${text}\n`);
+  } catch (e) {
+    S().toast(e.message, 'error');
+  }
+}
+
+export function stopTerminal(runId) {
+  getWorkspace().stop?.(runId).catch(() => {});
+}
+
+const quote = (p) => `"${p.replace(/"/g, '\\"')}"`;
+/** The command that runs a script, for this computer (Windows says python/py, Mac and Linux python3). */
+export function commandFor(path, platform = S().server?.platform || (navigator.userAgent.includes('Windows') ? 'win32' : 'linux')) {
+  const f = quote(path);
+  const win = platform === 'win32';
+  const ext = (/\.([^.]+)$/.exec(path)?.[1] || '').toLowerCase();
+  return (
+    {
+      py: win ? `python ${f} || py ${f}` : `python3 ${f}`,
+      js: `node ${f}`,
+      mjs: `node ${f}`,
+      cjs: `node ${f}`,
+      ts: `npx --yes tsx ${f}`,
+      sh: `bash ${f}`,
+      rb: `ruby ${f}`,
+      php: `php ${f}`,
+      lua: `lua ${f}`,
+      go: `go run ${f}`,
+      ps1: `powershell -ExecutionPolicy Bypass -File ${f}`,
+      bat: f,
+    }[ext] || f
+  );
+}
+
+/** ▶ Run on a file: open the terminal and run it there. */
+export function runFileCommand(path) {
+  S().openPanel('terminal');
+  return runUserCommand(commandFor(path));
+}
+
+/** Delete one file of this chat. Returns true when it's gone. */
+export async function deleteFile(path) {
+  const ws = getWorkspace();
+  try {
+    await ws.remove(path);
+  } catch (e) {
+    S().toast(`Couldn't delete ${path}: ${e.message}`, 'error');
+    return false;
+  }
+  const s = S().activeSession();
+  if (s) S().patchSession(s.id, (x) => ({ changes: x.changes.filter((c) => c.path !== path) }));
+  if (S().previewPath === path) useStore.setState({ previewPath: null });
+  await refreshFileIndex();
+  S().toast(`Deleted ${path}`, 'success');
+  return true;
+}
+
+/**
+ * Delete this chat's files: everything in its own folder, or (in a shared project folder) only the files Buddo
+ * created in this chat, never the files that were there already.
+ */
+export async function deleteAllFiles() {
+  const ws = getWorkspace();
+  const s = S().activeSession();
+  try {
+    if (ws.clear) await ws.clear();
+    else for (const c of (s?.changes || []).filter((c) => c.original == null)) await ws.remove(c.path).catch(() => {});
+  } catch (e) {
+    S().toast(`Couldn't delete the files: ${e.message}`, 'error');
+  }
+  if (s) S().patchSession(s.id, (x) => ({ changes: ws.clear ? [] : x.changes.filter((c) => c.original != null) }));
+  useStore.setState({ previewPath: null });
+  await refreshFileIndex();
+  S().toast('Deleted the files', 'success');
 }
 
 export function retryLast() {
@@ -464,7 +560,7 @@ async function autoLearn(sid, { lite, settings }) {
   S().patchSession(sid, { learnedUpTo: session.items.length });
   if (!userTexts.length) return;
   try {
-    const facts = await learnAboutUser({ provider: getProvider(settings), model: currentModel(settings), profile: st.profile, userTexts });
+    const facts = await learnAboutUser({ provider: getProvider(settings), model: currentModel(settings), profile: st.profile, userTexts, contextBudget: chatContext(settings, lite) });
     const added = facts.filter((f) => S().remember(f, 'auto'));
     if (added.length) S().toast(`🧠 Buddo learned ${added.length === 1 ? `: ${added[0]}` : `${added.length} new things about you`}`, 'success');
   } catch {}

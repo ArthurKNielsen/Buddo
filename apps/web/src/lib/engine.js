@@ -25,6 +25,13 @@ function withBrowserMedia(ws) {
 
 /** The workspace a chat works in. */
 export function workspaceFor(session) {
+  // The desktop app's home folder: each chat gets its own folder there too, and sees nothing else.
+  if (workspace.type === 'server' && workspace.info?.chatFolders) {
+    // (chats from before keep working in the shared folder, where their files are)
+    const id = session && !session.ownFolder ? '' : session?.id || '_new';
+    if (!views.has(id)) views.set(id, withServerExtras(serverWorkspace(workspace.info, id || null)));
+    return views.get(id);
+  }
   if (workspace.type !== 'sandbox') return workspace;
   const dir = session ? session.sandboxDir ?? '' : 'chats/_new';
   if (!views.has(dir)) views.set(dir, withBrowserMedia(chatSandbox(workspace, dir)));
@@ -40,6 +47,14 @@ useStore.subscribe((s, prev) => {
     const alive = new Set(s.sessions.map((x) => x.sandboxDir));
     for (const x of prev.sessions) if (x.sandboxDir && !alive.has(x.sandboxDir)) workspace.removeWhere((k) => k.startsWith(`${x.sandboxDir}/`));
   }
+  if (s.sessions !== prev.sessions && workspace.type === 'server' && workspace.info?.chatFolders) {
+    const alive = new Set(s.sessions.map((x) => x.id));
+    for (const x of prev.sessions) {
+      if (alive.has(x.id) || !x.ownFolder) continue;
+      views.delete(x.id);
+      api('/api/chat/remove', { method: 'POST', body: { chat: x.id } }).catch(() => {});
+    }
+  }
 });
 
 // While an in-browser model runs, the GPU is busy with it: drop the frosted-glass blurs so the page stays smooth.
@@ -52,7 +67,7 @@ if (typeof document !== 'undefined') {
 function publishWorkspace(ws) {
   workspace = ws.type === 'folder' ? withBrowserMedia(ws) : ws;
   views.clear();
-  useStore.setState({ ws: { kind: ws.kind, type: ws.type, name: ws.name, root: ws.root, exec: !!ws.capabilities.exec } });
+  useStore.setState({ ws: { kind: ws.kind, type: ws.type, name: ws.name, root: ws.root, exec: !!ws.capabilities.exec, chatFolders: ws.type === 'sandbox' || !!ws.info?.chatFolders } });
   refreshFileIndex();
 }
 
@@ -508,15 +523,19 @@ async function syncProfile() {
 
 // Only offer screenshot / record_video / make_video when the server has a browser to drive.
 let browserOk = null;
-async function makeServerWorkspace(info) {
-  const ws = serverWorkspace(info);
-  browserOk ??= api('/api/browser/status').then((b) => b.available).catch(() => false);
-  if (!(await browserOk)) {
+function withServerExtras(ws) {
+  if (browserOk === false) {
     delete ws.media.screenshot;
     delete ws.media.record_video;
     delete ws.media.make_video;
   }
   return ws;
+}
+async function makeServerWorkspace(info) {
+  const ws = serverWorkspace(info);
+  ws.info = info;
+  browserOk = await (browserOk ?? api('/api/browser/status').then((b) => b.available).catch(() => false));
+  return withServerExtras(ws);
 }
 
 export async function initWorkspace() {

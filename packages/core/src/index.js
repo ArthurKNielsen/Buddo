@@ -1,7 +1,7 @@
 export { TOOLS, TOOL_MAP, executeTool, describeCall, parseTodos, locateSnippet, parseTime } from './tools.js';
 export { analyze, findToolCall, parseArgs, splitThinking } from './parser.js';
 export { runAgent, gatherContext, compactForModel, contextTokens, estimateTokens, learnAboutUser } from './agent.js';
-export { buildSystemPrompt, availableTools } from './prompt.js';
+export { buildSystemPrompt, availableTools, filesNote } from './prompt.js';
 export { webSearch, formatSearch, parseDdgHtml, parseDdgLite, parseMojeek } from './websearch.js';
 export { VIBES, VERBOSITY, EMOJI, DEFAULT_PROFILE, normalizeProfile, addMemory, personalityPrompt } from './personality.js';
 export { ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, guessVision, isTinyModel, thinksNatively } from './providers.js';
@@ -10,6 +10,6 @@ export { globToRegExp, matchGlob, searchFiles, formatTree, htmlToText, IGNORED_D
 export { SLASH_COMMANDS, parseSlash, COMPACT_PROMPT } from './commands.js';
 export { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml } from './codeblocks.js';
 export { looksGarbled } from './garble.js';
-export { planCodeSave, mergeCss, mergeCssIntoHtml, looksLikeEdit, isNewBuild, sniffLang, isFullHtml, parseFindReplace, mergeChangedLines, rewriteAsEdits, hasPlaceholders, linkedFiles, asksToRemove } from './edits.js';
+export { planCodeSave, mergeCss, mergeCssIntoHtml, looksLikeEdit, isNewBuild, requestedLanguage, isWebFile, sniffLang, isFullHtml, parseFindReplace, mergeChangedLines, rewriteAsEdits, hasPlaceholders, linkedFiles, asksToRemove } from './edits.js';
 export { runEdit, parseSteps, parseVideoSize, parseSeconds, parseProbe, captionChunks, fmtTime, filterPath, videoSlug, VIDEO_SIZES, VIDEO_OUT, IMAGE_EXT, LOOKS } from './video-edit.js';
 export { attachedMedia, requestText, wantsVideoEdit, planQuickVideo } from './quick-video.js';

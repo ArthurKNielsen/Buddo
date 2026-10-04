@@ -57,15 +57,25 @@ function filesSection(files, tree, { lite = false } = {}) {
     : `These are ALL the files in the project — only these exist. Never read, edit or mention any other file unless you create it:\n${list}`;
 }
 
+/**
+ * The file list as a note for the user's latest message (see filesInSystem): the system prompt then stays the same
+ * from one message to the next, so local engines (Ollama, llama.cpp) can reuse what they already read instead of
+ * reading the whole chat again every time a file changes.
+ */
+export function filesNote({ files, tree } = {}, { lite = false } = {}) {
+  const list = filesSection(files, tree, { lite });
+  return list ? `[Project files right now]\n${list}` : '';
+}
+
 const show = (v, ...a) => (typeof v === 'function' ? v(...a) : v);
 
 /** Compact prompt (~4× shorter) for small models, where reading the prompt is the slow part. */
-function litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud }) {
+function litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud, filesInSystem = true }) {
   const tools = availableTools(workspace, { lite: true, profile });
   const ex = exampleFiles(files);
   const plan = mode === 'plan';
   const video = tools.some((t) => t.name === 'edit_video');
-  const projectFiles = filesSection(files, tree, { lite: true });
+  const projectFiles = filesInSystem ? filesSection(files, tree, { lite: true }) : '';
   return `You are a helpful coding assistant working in the user's project "${workspace?.name || 'project'}".
 ${plan ? 'Plan mode: do not write files. Reply with a short numbered plan.' : `You CAN create and change files: Buddo saves your code into the project for you. Never say you cannot write files or code.
 To create a NEW file, write its name on its own line, then the COMPLETE file in a fenced code block:
@@ -77,7 +87,7 @@ index.html
 \`\`\`
 
 That page is only an example of the format: never copy it, write what the user asks for.
-Use one block per file (for a website: index.html, styles.css and script.js, linked to each other). New files: write the whole file, never "..." placeholders.
+Use the language asked for: Python is a .py file (main.py, \`\`\`python), Java a .java file. Only a website gets index.html, styles.css and script.js (linked). One block per file. New files: write the whole file, never "..." placeholders.
 To CHANGE a file that already exists, don't rewrite it: write its name, then a code block with ONLY the lines you change (written the new way). To add lines, include the line just above where they go. To REMOVE lines, write its name, then a code block with only the lines to delete, each starting with "- ".
 Make exactly what was asked, nothing extra: asked for a button, write just that button. A color or style goes in the CSS: a "green button" has a green background, not the word Green on it.`}
 
@@ -98,7 +108,7 @@ text "Watch this" top 3-6 slide sound whoosh
 </tool:edit_video>` : ''}
 ${projectFiles ? `\n${projectFiles}\n` : ''}
 Rules:
-- Only the files listed above exist. Never read or mention any other file.
+- Only the files listed ${filesInSystem ? 'above' : 'with the latest message'} exist. Never read or mention any other file.
 - Something new: write the files right away, don't read first. A change: change only the lines that were asked.
 - Write each file once. When Buddo says a file is saved, it is saved: don't write it again.
 - Don't apologise. When it's done, say so in one short sentence.${thinkAloud ? '\n- Start every reply with one short sentence of planning inside <think></think>.' : ''}
@@ -106,8 +116,9 @@ ${memory ? `\nProject notes:\n${memory.slice(0, 600)}\n` : ''}
 ${personalityPrompt(profile, { lite: true })}`;
 }
 
-export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false } = {}) {
-  if (lite) return litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud });
+/** filesInSystem: false leaves the file list out (send filesNote() with the latest message instead). */
+export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, memory = '', date = new Date(), extra = '', vision = false, profile, lite = false, thinkAloud = false, filesInSystem = true } = {}) {
+  if (lite) return litePrompt({ workspace, mode, tree, files, memory, profile, thinkAloud, filesInSystem });
   const exec = workspace?.capabilities?.exec;
   const media = !!workspace?.media;
   const browser = !!workspace?.media?.screenshot;
@@ -118,8 +129,8 @@ export function buildSystemPrompt({ workspace, mode = 'ask', tree = '', files, m
   const has = (n) => available.some((t) => t.name === n);
   const tools = available.map((t) => `### ${t.name}\n${show(t.desc, caps)}\nParams: ${t.params.map((p) => `<${p}>`).join(' ')}\n${show(t.example, ex)}`).join('\n\n');
   const mediaTools = ['watch_video', 'listen_audio', 'view_image'].filter(has);
-  const projectFiles = filesSection(files, tree);
-  const empty = Array.isArray(files) && !files.length;
+  const projectFiles = filesInSystem ? filesSection(files, tree) : '';
+  const empty = filesInSystem && Array.isArray(files) && !files.length;
 
   return `You are ${name}, an expert software engineer working inside the user's project. You are precise, careful and honest. You run fully locally and free.
 
@@ -139,8 +150,8 @@ ${thinkAloud ? '\nThink out loud: start EVERY message with a short plan inside <
 ${tools}
 
 # How to work
-1. Know what exists: the "Project files" list below is the truth. Never read, edit or mention a file that isn't in it unless you create it — no guessed paths, no files from examples.
-2. Something NEW (${empty ? 'the project is empty, so this is the case now' : 'a new page, app, game or file'}): don't read or search first — there is nothing to read. Write every file right away with write_file, each one complete and working, never "..." placeholders. For a website: index.html, styles.css and script.js, linked to each other.${has('todo') ? ' Use the todo tool only for big jobs (5+ files).' : ''}
+1. Know what exists: the project files list is the truth. Never read, edit or mention a file that isn't in it unless you create it — no guessed paths, no files from examples.
+2. Something NEW (${empty ? 'the project is empty, so this is the case now' : 'a new page, app, game or file'}): don't read or search first — there is nothing to read. Write every file right away with write_file, each one complete and working, never "..." placeholders. Use the language the user asks for (a Python script is a .py file, e.g. main.py; a Java program a .java file) and never turn it into a web page. Only for a website: index.html, styles.css and script.js, linked to each other.${has('todo') ? ' Use the todo tool only for big jobs (5+ files).' : ''}
 3. A CHANGE to something that exists ("make the heading green", "add a menu"): read the file(s) involved once (the page and the CSS/JS it links), find the exact lines that control what was asked, and change only those with edit_file, one call per spot. Never rewrite a whole existing file for a small change. To add something, edit the line next to where it goes. To remove something, put those lines in <old> and leave <new> empty.
 4. Do exactly what was asked, nothing more. Colors, sizes and spacing go in the CSS ("a green button" has a green background — not the word Green on it). Keep everything else as it is and match the existing style.
 5. Tool results are the truth. When one says a file was saved, it is saved: never write that file again in this reply. Never repeat a call that already worked.
@@ -161,12 +172,12 @@ ${mediaTools.length ? '12' : '11'}. Finish: when the work is done, reply WITHOUT
 - Mode: ${MODE_TEXT[mode] || MODE_TEXT.ask}
 
 # Project files
-${projectFiles || '(unknown — use list_dir to look)'}
+${filesInSystem ? projectFiles || '(unknown — use list_dir to look)' : "The list of the project's files comes with the user's latest message, marked [Project files right now]. It is the truth."}
 ${memory ? `\n# Project memory (BUDDO.md — instructions from the user, follow them)\n${memory}\n` : ''}
 ${personalityPrompt(profile)}
 
 # Remember
-- Only the project files listed above exist. Never invent or guess a file.
+- Only the project files listed ${filesInSystem ? 'above' : 'with the latest message'} exist. Never invent or guess a file.
 - New things: write the complete files right away. Changes: only the lines that were asked.
 - Saved means saved: never write the same file twice. Never repeat a call that worked; never repeat one that failed.
 - When it's done: a short summary and no tool call.

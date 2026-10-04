@@ -16,7 +16,9 @@ export const DEFAULT_SETTINGS = {
   liveCode: true, // show code while Buddo is writing it
   lite: 'auto', // auto | on | off — short prompt + small context for tiny models
   mode: 'ask',
-  ctx: 16384,
+  // 8k fits a 7B model's memory on most GPUs; 16k often doesn't, and Ollama then runs part of the model on the CPU
+  // (reading every message gets many times slower). Long chats are compacted to fit.
+  ctx: 8192,
   temperature: 0.2,
   skin: 'studio', // see lib/skins.js
   buddy: true, // Buddo stands on the chat bar
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS = {
 export const newSession = (id = uid()) => ({
   id,
   sandboxDir: `chats/${id}`, // this chat's own folder in the browser sandbox
+  ownFolder: true, // in the desktop app's home folder, this chat works in its own folder (chats/<id>)
   title: 'New chat',
   createdAt: Date.now(),
   updatedAt: Date.now(),
@@ -185,7 +188,12 @@ export const useStore = create(
     }),
     {
       name: 'buddo-store',
-      version: 1,
+      version: 2,
+      // v2: the old 16k default context made 7B models spill onto the CPU on many computers.
+      migrate: (persisted, from) => {
+        if (from < 2 && persisted?.settings?.ctx === 16384) persisted.settings.ctx = 8192;
+        return persisted;
+      },
       storage: createJSONStorage(() => safeStorage),
       partialize: (s) => ({
         settings: s.settings,
@@ -206,6 +214,7 @@ export const useStore = create(
           ...s,
           // Chats from before per-chat folders keep the shared sandbox files they were made with.
           sandboxDir: s.sandboxDir ?? '',
+          ownFolder: s.ownFolder ?? false,
           items: (s.items || []).map((it) => (it.status === 'streaming' ? { ...it, status: 'stopped' } : it)),
         })),
       }),

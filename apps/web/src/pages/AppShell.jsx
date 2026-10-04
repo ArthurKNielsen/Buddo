@@ -14,6 +14,7 @@ import FolderPicker from '../components/FolderPicker.jsx';
 import ModelPicker from '../components/ModelPicker.jsx';
 import HelpModal from '../components/HelpModal.jsx';
 import Toasts from '../components/Toasts.jsx';
+import { UpdateBanner } from '../components/Updates.jsx';
 import { stop } from '../lib/runner.js';
 import { skinById } from '../lib/skins.js';
 
@@ -135,6 +136,7 @@ export default function AppShell() {
       <ModelPicker />
       <HelpModal />
       <Toasts />
+      <UpdateBanner />
     </div>
   );
 }

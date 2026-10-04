@@ -8,7 +8,7 @@ const EXT = {
   js: 'js', javascript: 'js', jsx: 'jsx', mjs: 'js', ts: 'ts', typescript: 'ts', tsx: 'tsx', vue: 'vue', svelte: 'svelte',
   py: 'py', python: 'py', rb: 'rb', ruby: 'rb', go: 'go', golang: 'go', rs: 'rs', rust: 'rs', java: 'java', kt: 'kt', kotlin: 'kt',
   swift: 'swift', c: 'c', h: 'h', cpp: 'cpp', 'c++': 'cpp', cc: 'cpp', cs: 'cs', csharp: 'cs', php: 'php', lua: 'lua', dart: 'dart',
-  json: 'json', yaml: 'yaml', yml: 'yml', toml: 'toml', sql: 'sql', md: 'md', markdown: 'md', r: 'r',
+  sh: 'sh', bash: 'sh', ps1: 'ps1', bat: 'bat', json: 'json', yaml: 'yaml', yml: 'yml', toml: 'toml', sql: 'sql', md: 'md', markdown: 'md', r: 'r',
 };
 
 const DEFAULT_NAME = { html: 'index.html', css: 'styles.css', js: 'script.js', jsx: 'App.jsx', ts: 'index.ts', tsx: 'App.tsx', py: 'main.py', go: 'main.go', rs: 'main.rs', java: 'Main.java', c: 'main.c', cpp: 'main.cpp', cs: 'Program.cs', php: 'index.php', rb: 'main.rb', lua: 'main.lua', dart: 'main.dart', kt: 'Main.kt', swift: 'main.swift', vue: 'App.vue', svelte: 'App.svelte', scss: 'styles.scss', sql: 'schema.sql' };
@@ -16,7 +16,7 @@ const DEFAULT_NAME = { html: 'index.html', css: 'styles.css', js: 'script.js', j
 // Never turn these into files (commands, output, data examples).
 const SKIP_LANG = /^(bash|sh|shell|zsh|console|terminal|powershell|ps1?|cmd|bat|text|txt|output|log|plaintext|diff|patch)$/i;
 
-const FILE_RE = /(?:^|[\s`*"'(:\[])((?:[\w-]+\/)*[\w.-]+\.(?:html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte|py|rb|go|rs|java|kt|swift|c|h|cpp|cs|php|lua|dart|json|ya?ml|toml|sql|md|xml|svg|txt|env|sh))(?=$|[\s`*"'):,\]])/i;
+const FILE_RE = /(?:^|[\s`*"'(:\[])((?:[\w-]+\/)*[\w.-]+\.(?:html?|css|s[ac]ss|less|m?jsx?|tsx?|vue|svelte|py|rb|go|rs|java|kt|swift|c|h|cpp|cs|php|lua|dart|json|ya?ml|toml|sql|md|xml|svg|txt|env|sh|ps1|bat))(?=$|[\s`*"'):,\]])/i;
 
 function nameFromFirstLine(code) {
   const first = code.split('\n', 1)[0].trim();
@@ -114,7 +114,8 @@ export function extractCodeFiles(text, { wantsCode = false, diffs = false } = {}
         }
       }
     }
-    if (!code.trim() || SKIP_LANG.test(langWord)) {
+    // Shell blocks are usually commands to run, not files: unless the reply names the script ("setup.sh").
+    if (!code.trim() || (SKIP_LANG.test(langWord) && !(path && /\.(sh|bash|ps1|bat|cmd)$/i.test(path)))) {
       i = j + 1;
       continue;
     }
@@ -186,7 +187,7 @@ export function linkAssets(files = []) {
 }
 
 const BUILD_VERBS = /\b(build|make|create|write|code|generate|add|fix|change|update|edit|improve|redo|rewrite|style|design|implement|program|develop|put|turn|convert|refactor|clone|copy|recreate|move|remove|delete|replace|give|want|need)\b/i;
-const CODE_NOUNS = /\b(website|web ?page|page|site|app|game|script|program|html|css|javascript|python|button|calculator|form|landing|todo|to-do|counter|timer|stopwatch|clock|quiz|portfolio)\b/i;
+const CODE_NOUNS = /\b(website|web ?page|page|site|app|game|script|program|html|css|javascript|python|java|rust|golang|ruby|lua|function|class|button|calculator|form|landing|todo|to-do|counter|timer|stopwatch|clock|quiz|portfolio)\b/i;
 const QUESTION = /^\s*(what|why|how|explain|when|where|who|which|does|is|are)\b/i;
 export const asksForCode = (text = '') => BUILD_VERBS.test(text) || (CODE_NOUNS.test(text) && !QUESTION.test(text));
 

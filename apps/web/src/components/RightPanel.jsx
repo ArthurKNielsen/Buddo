@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FolderTree, GitCompare, TerminalSquare, ListTodo, Eye, X, RefreshCw, ChevronRight, Folder, FolderOpen, FileText, ArrowLeft, AtSign,
-  MessageSquarePlus, Undo2, ExternalLink, Play, FilePlus2, Trash2, Copy,
+  MessageSquarePlus, Undo2, ExternalLink, Play, FilePlus2, Trash2, Copy, Square, CornerDownLeft,
 } from 'lucide-react';
 import { diffLines, diffStats } from '@buddo/core';
 import { useStore } from '../lib/store.js';
 import { getWorkspace, refreshFileIndex } from '../lib/engine.js';
 import { buildPreview, mediaUrl } from '../lib/workspaces.js';
-import { revertChange, runUserCommand, submit } from '../lib/runner.js';
+import { revertChange, runUserCommand, submit, deleteFile, deleteAllFiles, runFileCommand, sendTerminalInput, stopTerminal } from '../lib/runner.js';
 import DiffView, { CodeView } from './DiffView.jsx';
 import { TodoList } from './ToolCard.jsx';
 
@@ -43,7 +43,7 @@ function fileColor(name) {
   );
 }
 
-function TreeNode({ node, sort, depth, onOpen, open, toggle, changed }) {
+function TreeNode({ node, sort, depth, onOpen, open, toggle, changed, onDelete }) {
   const isOpen = open.has(node.path);
   if (node.type === 'dir') {
     return (
@@ -55,7 +55,7 @@ function TreeNode({ node, sort, depth, onOpen, open, toggle, changed }) {
           {isOpen ? <FolderOpen size={14} className="tree-folder" /> : <Folder size={14} className="tree-folder" />}
           <span className="truncate">{node.name}</span>
         </button>
-        {isOpen && sort(node).map((c) => <TreeNode key={c.path} node={c} sort={sort} depth={depth + 1} onOpen={onOpen} open={open} toggle={toggle} changed={changed} />)}
+        {isOpen && sort(node).map((c) => <TreeNode key={c.path} node={c} sort={sort} depth={depth + 1} onOpen={onOpen} open={open} toggle={toggle} changed={changed} onDelete={onDelete} />)}
       </>
     );
   }
@@ -64,9 +64,30 @@ function TreeNode({ node, sort, depth, onOpen, open, toggle, changed }) {
       <FileText size={14} style={{ color: fileColor(node.name) }} />
       <span className="truncate">{node.name}</span>
       {changed.has(node.path) && <span className="tree-mod">M</span>}
+      <DeleteButton path={node.path} onDelete={onDelete} />
     </button>
   );
 }
+
+/** The little trash can on a file row (a span: it sits inside the row's button). */
+function DeleteButton({ path, onDelete }) {
+  return (
+    <span
+      className="icon-btn sm tree-del"
+      role="button"
+      title={`Delete ${path}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onDelete(path);
+      }}
+    >
+      <Trash2 size={12} />
+    </span>
+  );
+}
+
+// Scripts the terminal can run with one click (the command is worked out in runner.js).
+const RUNNABLE = /\.(py|js|mjs|cjs|ts|sh|rb|php|lua|go|ps1|bat)$/i;
 
 /** Folder + file entries for a list of file paths. */
 function entriesFor(paths) {
@@ -96,7 +117,8 @@ function FilesTab() {
   const [file, setFile] = useState(null);
   const [filter, setFilter] = useState('');
   const changed = useMemo(() => new Set((session?.changes || []).filter((c) => !c.reverted).map((c) => c.path)), [session?.changes]);
-  const shared = ws?.type !== 'sandbox';
+  // A shared folder (a real project every chat works on) vs. this chat's own folder (sandbox, desktop home folder).
+  const shared = !ws?.chatFolders || (ws.type === 'server' && session && !session.ownFolder);
   const chatOnly = shared && scope === 'chat';
   const entries = useMemo(() => (chatOnly ? entriesFor(changed) : allEntries), [chatOnly, changed, allEntries]);
 
@@ -129,6 +151,20 @@ function FilesTab() {
     n.has(p) ? n.delete(p) : n.add(p);
     return n;
   });
+  const removeOne = async (path) => {
+    if (!confirm(`Delete ${path}? This can't be undone.`)) return;
+    if (await deleteFile(path)) setFile((f) => (f?.path === path ? null : f));
+  };
+  const removeAll = async () => {
+    const mine = [...changed].filter((p) => (session?.changes || []).some((c) => c.path === p && c.original == null));
+    const msg = shared
+      ? `Delete the ${mine.length} file${mine.length === 1 ? '' : 's'} Buddo created in this chat? Files that were already in the folder stay.`
+      : "Delete ALL of this chat's files? This can't be undone.";
+    if (shared && !mine.length) return useStore.getState().toast('Buddo has not created any files in this chat.');
+    if (!confirm(msg)) return;
+    await deleteAllFiles();
+    setFile(null);
+  };
   const filtered = filter ? entries.filter((e) => e.type === 'file' && e.path.toLowerCase().includes(filter.toLowerCase())).slice(0, 200) : null;
 
   if (file) {
@@ -140,6 +176,14 @@ function FilesTab() {
           </button>
           <span className="mono truncate pane-path">{file.path}</span>
           <span className="spacer" />
+          {ws?.exec && RUNNABLE.test(file.path) && (
+            <button className="btn btn-sm btn-primary" title="Run it in the terminal" onClick={() => runFileCommand(file.path)}>
+              <Play size={12} /> Run
+            </button>
+          )}
+          <button className="icon-btn sm" title="Delete this file" onClick={() => removeOne(file.path)}>
+            <Trash2 size={14} />
+          </button>
           <button className="icon-btn sm" title="Copy" onClick={() => navigator.clipboard?.writeText(file.content)}>
             <Copy size={14} />
           </button>
@@ -223,6 +267,9 @@ function FilesTab() {
         <button className="icon-btn sm" title="Refresh" onClick={refreshFileIndex}>
           <RefreshCw size={14} />
         </button>
+        <button className="icon-btn sm" title={shared ? 'Delete the files Buddo created in this chat' : "Delete all of this chat's files"} onClick={removeAll} disabled={!entries.some((e) => e.type === 'file')}>
+          <Trash2 size={14} />
+        </button>
       </div>
       <div className="pane-scroll tree">
         {!entries.length && (
@@ -230,7 +277,7 @@ function FilesTab() {
             <FolderTree size={28} />
             <p>{chatOnly ? 'No files from this chat yet.' : 'No files yet.'}</p>
             <span className="faint">
-              {ws?.type === 'sandbox' ? 'Each chat has its own files. Ask Buddo to build something and they appear here.' : chatOnly ? 'Files Buddo creates or changes in this chat show up here.' : 'This folder is empty.'}
+              {!shared ? 'Each chat has its own files. Ask Buddo to build something and they appear here.' : chatOnly ? 'Files Buddo creates or changes in this chat show up here.' : 'This folder is empty.'}
             </span>
             {chatOnly && allEntries.length > 0 && (
               <button className="btn btn-outline btn-sm" style={{ marginTop: 10 }} onClick={() => setUI({ treeScope: 'all' })}>
@@ -246,9 +293,10 @@ function FilesTab() {
                 <span className="truncate mono" style={{ fontSize: 12 }}>
                   {e.path}
                 </span>
+                <DeleteButton path={e.path} onDelete={removeOne} />
               </button>
             ))
-          : sort(root).map((n) => <TreeNode key={n.path} node={n} sort={sort} depth={0} onOpen={openFile} open={open} toggle={toggle} changed={changed} />)}
+          : sort(root).map((n) => <TreeNode key={n.path} node={n} sort={sort} depth={0} onOpen={openFile} open={open} toggle={toggle} changed={changed} onDelete={removeOne} />)}
       </div>
     </div>
   );
@@ -341,6 +389,8 @@ function TerminalTab() {
   const [busy, setBusy] = useState(false);
   const end = useRef(null);
   const log = session?.terminal || [];
+  // A command the user started that is still running: what they type goes to it (answers to input()).
+  const live = [...log].reverse().find((t) => t.code === null && t.source === 'user' && t.runId);
   useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [log.length, log[log.length - 1]?.output]);
 
   if (!ws?.exec) {
@@ -366,6 +416,11 @@ function TerminalTab() {
               {t.code !== null && t.code !== undefined && <span className={t.code === 0 ? 'term-ok' : 'term-bad'}>{t.code === 0 ? '✓' : `✗ ${t.code}`}</span>}
             </div>
             {t.output && <pre>{t.output.slice(-20000)}</pre>}
+            {t.code === null && t.runId && (
+              <button className="btn btn-sm btn-outline term-stop" onClick={() => stopTerminal(t.runId)}>
+                <Square size={11} /> Stop
+              </button>
+            )}
           </div>
         ))}
         <div ref={end} />
@@ -374,6 +429,11 @@ function TerminalTab() {
         className="term-input"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (live) {
+            const text = cmd;
+            setCmd('');
+            return sendTerminalInput(live.runId, text);
+          }
           if (!cmd.trim() || busy) return;
           const c = cmd;
           setCmd('');
@@ -385,10 +445,16 @@ function TerminalTab() {
           }
         }}
       >
-        <span className="term-prompt">$</span>
-        <input value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder={busy ? 'running…' : 'run a command'} disabled={busy} />
-        <button className="icon-btn sm" disabled={busy}>
-          <Play size={13} />
+        <span className="term-prompt">{live ? '›' : '$'}</span>
+        <input
+          value={cmd}
+          onChange={(e) => setCmd(e.target.value)}
+          placeholder={live ? 'type an answer for the program, then Enter' : busy ? 'running…' : 'run a command (e.g. python main.py)'}
+          disabled={busy && !live}
+          autoFocus={!!live}
+        />
+        <button className="icon-btn sm" disabled={busy && !live} title={live ? 'Send' : 'Run'}>
+          {live ? <CornerDownLeft size={13} /> : <Play size={13} />}
         </button>
       </form>
     </div>
@@ -443,7 +509,9 @@ function PreviewTab() {
     return l?.name === 'write_file' && /\.(html?|css|js)$/i.test(l.args?.path || '') && l.args.content ? l : null;
   });
   const liveKey = live ? `${live.args.path}:${Math.floor(live.args.content.length / 120)}` : '';
-  const entry = live && /\.html?$/i.test(live.args.path) ? live.args.path.replace(/^\.?\//, '') : previewPath;
+  const pages = useMemo(() => (fileIndex || []).filter((e) => e.type === 'file' && /\.html?$/i.test(e.path)).map((e) => e.path), [fileIndex]);
+  const chosen = previewPath && pages.includes(previewPath) ? previewPath : pages.includes('index.html') ? 'index.html' : pages[0] || previewPath;
+  const entry = live && /\.html?$/i.test(live.args.path) ? live.args.path.replace(/^\.?\//, '') : chosen;
   const load = async () => setHtml(await buildPreview(getWorkspace(), entry, live ? { [live.args.path]: live.args.content } : {}).catch(() => null));
   useEffect(() => {
     load();
@@ -456,6 +524,17 @@ function PreviewTab() {
             <span className="row" style={{ gap: 6 }}>
               <span className="live-dot">LIVE</span> building {live.args.path}…
             </span>
+          ) : pages.length > 1 ? (
+            <label className="row preview-pick" style={{ gap: 6 }}>
+              Preview of
+              <select value={entry || ''} onChange={(e) => useStore.setState({ previewPath: e.target.value })} title="Which page to show">
+                {pages.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : (
             `Live preview of ${entry || 'index.html'}`
           )}
@@ -495,7 +574,6 @@ function PreviewTab() {
 
 export default function RightPanel() {
   const tab = useStore((s) => s.ui.tab);
-  const ws = useStore((s) => s.ws);
   const { setUI } = useStore.getState();
   return (
     <div className="panel">
@@ -508,20 +586,6 @@ export default function RightPanel() {
           </button>
         ))}
         <span className="spacer" />
-        {ws?.type === 'sandbox' && tab === 'files' && (
-          <button
-            className="icon-btn sm"
-            title="Delete this chat's files"
-            onClick={() => {
-              if (confirm("Delete all of this chat's files?")) {
-                getWorkspace().clear?.();
-                refreshFileIndex();
-              }
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
         <button className="icon-btn sm" onClick={() => setUI({ panel: false })}>
           <X size={15} />
         </button>

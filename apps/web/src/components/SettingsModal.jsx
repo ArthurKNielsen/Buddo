@@ -8,6 +8,7 @@ import { MODES } from './Composer.jsx';
 import Modal from './Modal.jsx';
 import Logo from './Logo.jsx';
 import { SKINS } from '../lib/skins.js';
+import { UpdatePanel } from './Updates.jsx';
 
 const TABS = [
   { id: 'personality', icon: Smile, label: 'Personality' },
@@ -38,6 +39,7 @@ export default function SettingsModal() {
   const engine = useStore((st) => st.engine);
   const server = useStore((st) => st.server);
   const sessions = useStore((st) => st.sessions);
+  const version = useStore((st) => st.update?.current) || '1.0.0';
   const { setUI, setSettings, toast } = useStore.getState();
 
   return (
@@ -97,7 +99,7 @@ export default function SettingsModal() {
                 <div className="field">
                   <label>Context window · {s.ctx.toLocaleString()} tokens</label>
                   <input type="range" min={4096} max={131072} step={4096} value={s.ctx} onChange={(e) => setSettings({ ctx: +e.target.value })} className="range" />
-                  <span className="hint">Bigger = remembers more of your project, but uses more RAM. 16k–32k is a good default.</span>
+                  <span className="hint">Bigger = remembers more of your project, but needs more GPU memory. 8k suits a 7B model on most computers; if Buddo reads your messages slowly, go back to 8,192 (when it doesn't fit, part of the model runs on the CPU).</span>
                 </div>
               )}
               <div className="field">
@@ -357,7 +359,7 @@ export default function SettingsModal() {
             <div className="about">
               <Logo size={56} />
               <h3>
-                Buddo <span className="faint">v1.0.0</span>
+                Buddo <span className="faint">v{version}</span>
               </h3>
               <p className="muted">A free, open-source, local-first AI coding agent. Made to give everyone a capable coding buddy without API keys or subscriptions.</p>
               <div className="about-grid">
@@ -368,6 +370,8 @@ export default function SettingsModal() {
                 <span className="faint">License</span>
                 <span>MIT</span>
               </div>
+              <h4 style={{ marginTop: 18 }}>Updates</h4>
+              <UpdatePanel />
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { missingColors } from './colors.js';
 import { quickChange } from './quick.js';
+import { attachedMedia, requestText, wantsVideoEdit, planQuickVideo } from './quick-video.js';
 import { extractCodeFiles, asksForCode, isRefusal, fenceRawHtml, linkAssets } from './codeblocks.js';
 import { planCodeSave, looksLikeEdit, isNewBuild, parseFindReplace, linkedFiles, asksToRemove, rewriteAsEdits, removalKind, keepOnlyRemovals, hasPlaceholders } from './edits.js';
 
@@ -349,6 +350,58 @@ export async function runAgent({
   let repeats = 0;
   let incomplete = 0;
   let id = 0;
+
+  // Small models can't write video edit steps (they refuse, or write a web page instead): for "make this a TikTok
+  // with a hook title and sound effects", Buddo watches the attached video and plans the edit itself.
+  if (lite && mode !== 'plan' && workspace.media?.edit_video && workspace.media?.watch_video) {
+    const msg = lastUserMsg();
+    const { videos, audios } = msg && msg === messages[messages.length - 1] ? attachedMedia(messages) : { videos: [] };
+    const request = msg ? requestText(asked) : '';
+    if (videos.length && wantsVideoEdit(request, { attachedNow: /\[Attached video:/.test(msg.content) })) {
+      const run = async (name, args) => {
+        const call = { id: `t${Date.now().toString(36)}${id++}`, name, args, auto: true, quick: true };
+        onEvent({ type: 'tool-start', call, kind: TOOL_MAP[name].kind, auto: true });
+        const result = await perform(call, TOOL_MAP[name]);
+        onEvent({ type: 'tool-end', id: call.id, ok: !!result?.ok, output: result?.output || 'Stopped.', display: result?.display, denied: result?.denied });
+        return result;
+      };
+      const say = (text, status = 'done') => {
+        onEvent({ type: 'text', delta: text });
+        messages.push({ role: 'assistant', content: text });
+        onEvent({ type: status });
+        return { messages, status };
+      };
+      // Watch every clip: its length, and the loudest moment (the best part to put effects on).
+      let duration = 0;
+      let loudest = null;
+      for (const v of videos) {
+        const seen = await run('watch_video', { path: v });
+        if (!seen) return say('Stopped.', 'stopped');
+        if (!seen.ok) return say(`I couldn't open ${v}: ${seen.output.replace(/^Error:\s*/, '')}`);
+        const len = /— (\d+):(\d+(?:\.\d+)?) long/.exec(seen.output);
+        const peak = /loudest at (\d+):(\d+(?:\.\d+)?)/.exec(seen.output);
+        if (peak && loudest === null) loudest = duration + Number(peak[1]) * 60 + Number(peak[2]);
+        duration += len ? Number(len[1]) * 60 + Number(len[2]) : 0;
+      }
+      const plan = planQuickVideo(request, { videos, audios, duration, loudest, canCaption: !!workspace.media.listen_audio });
+      if (plan) {
+        const done = await run('edit_video', { input: plan.input, steps: plan.steps, out: plan.out });
+        if (!done) return say('Stopped.', 'stopped');
+        if (done.denied) return say('Okay, I left the video as it was.');
+        if (!done.ok) return say(`The edit didn't work: ${done.output.replace(/^Error:\s*/, '')}`, 'done');
+        return say(
+          [
+            `Done! Saved **${plan.out}** 🎬`,
+            '',
+            ...plan.did.map((d) => `- ${d}`),
+            ...plan.notes.map((n) => `- ⚠️ ${n}`),
+            '',
+            'Want your own words? Say something like: make it a TikTok with the title "POV: me rn" and "no way" on the best part.',
+          ].join('\n'),
+        );
+      }
+    }
+  }
 
   // Simple requests ("add a green button", "make the button blue", "remove the heading"): Buddo does them itself,
   // exactly, so no model can overdo them, miss them or rewrite the file. Everything else goes to the model.

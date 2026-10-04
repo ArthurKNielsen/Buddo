@@ -115,6 +115,18 @@ async function finish(args, out) {
   return exec(['-i', '/tmp/gif.mp4', '-vf', "fps=12,scale='min(480,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4", '-y', out]);
 }
 
+/** The loudest moment (momentary loudness peak) — usually the best part to put effects on. */
+async function loudestMoment(file, meta) {
+  if (!meta.audio || meta.duration < 2) return null;
+  const log = await exec(['-v', 'info', '-i', file, '-vn', '-af', 'ebur128=framelog=info', '-f', 'null', '-']).catch(() => '');
+  let best = null;
+  for (const m of log.matchAll(/t:\s*([\d.]+)\s+TARGET:[^\n]*?M:\s*(-?[\d.]+)/g)) {
+    const [t, loud] = [Number(m[1]), Number(m[2])];
+    if (t > 0.8 && t < meta.duration - 0.3 && (!best || loud > best.loud)) best = { t: t - 0.2, loud };
+  }
+  return best && best.loud > -70 ? best.t : null;
+}
+
 /** Key frames of a video as one contact sheet (+ their times). */
 async function contactSheet(file, meta, count = 8) {
   const n = Math.max(2, Math.min(count, Math.ceil(meta.duration / 0.4) || 2));
@@ -175,9 +187,11 @@ export function watchVideo(ws, { path, frames = 8 }) {
       const meta = await probe(file);
       if (!meta.video) throw new Error(`${path} has no video track. The website can't listen to audio; use the Buddo desktop app for that.`);
       const seen = await contactSheet(file, meta, Math.min(16, frames || 8));
+      const loudest = await loudestMoment(file, meta);
       const ms = Math.round(performance.now() - t0);
       const text = [
         `VIDEO ${path} — ${fmtTime(meta.duration)} long, ${meta.width}×${meta.height} (${meta.height > meta.width ? 'vertical' : 'horizontal'}), ${meta.fps} fps, ${meta.audio ? 'has audio' : 'no audio'}.`,
+        ...(loudest !== null ? [`Loudness: loudest at ${fmtTime(loudest)}`] : []),
         `Key frames (attached as one contact sheet, ${seen.cols}×${seen.rows}, read left→right, top→bottom):`,
         ...seen.times.map((t, i) => `  #${i + 1} ${fmtTime(t)}`),
         "(On the website Buddo sees the frames but can't hear the audio or detect objects. The desktop app can.)",

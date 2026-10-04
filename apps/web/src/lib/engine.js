@@ -122,6 +122,8 @@ export function recordSpeed(model, tps, settings = useStore.getState().settings)
 }
 
 /** Tiny models (any engine) get the short "lite" prompt and a small context so they stay fast. */
+/** In-browser models up to 3B: light enough for the short prompt and a 4k context. */
+export const isSmallBrowserModel = (id = '') => /(^|[-_])(0\.5|0\.6|1|1\.5|3)B([-_]|$)/i.test(id);
 export const isPocketModel = (id = '') => WEBLLM_MODELS.some((m) => m.pocket && m.id === id) || /(^|[:\-_])(0\.5b|360m|135m|0\.6b|1b|1\.1b)\b/i.test(id);
 export const isMobile = () => typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)));
 /** Ask the model to think out loud? Auto: yes for normal models without their own thinking mode, no for tiny ones. */
@@ -134,8 +136,9 @@ export function thinkAloud(settings = useStore.getState().settings) {
 export function liteMode(settings = useStore.getState().settings) {
   if (settings.lite === 'on') return true;
   if (settings.lite === 'off') return false;
-  // CPU mode reads prompts slowly, so it always gets the short prompt.
-  return isPocketModel(currentModel(settings)) || (settings.engine === 'webllm' && usesCpu(settings));
+  // CPU mode reads prompts slowly, so it always gets the short prompt. So do in-browser models up to 3B: reading the
+  // full prompt (~2.5k tokens) before every reply maxes out a laptop GPU for many seconds and the whole screen stutters.
+  return isPocketModel(currentModel(settings)) || (settings.engine === 'webllm' && (usesCpu(settings) || isSmallBrowserModel(currentModel(settings))));
 }
 
 let webllmEngine = null;
@@ -276,7 +279,8 @@ async function loadOnGpu(model) {
   // Bundled with the site: a CDN (esm.run) is often blocked on school/work networks and by ad blockers.
   webllmLib ||= await import('@mlc-ai/web-llm').catch(() => import(/* @vite-ignore */ 'https://esm.run/@mlc-ai/web-llm@0.2'));
   const onProgress = (p) => status(p.text, p.progress);
-  const ctx = { context_window_size: isPocketModel(model) ? 4096 : 8192 };
+  // A smaller window means less GPU memory and less work per token on laptop GPUs.
+  const ctx = { context_window_size: isPocketModel(model) || isSmallBrowserModel(model) ? 4096 : 8192 };
   webllmReady = '';
   const release = await acquireEngine();
   try {

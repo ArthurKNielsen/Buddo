@@ -108,11 +108,13 @@ export const TOOLS = [
     desc: `Edit videos (and photos) with simple steps, one per line, applied in order. \`input\`: one or more files, one per line — several are joined in order (photos become 3s clips; change with "stills 4"). Steps (times are seconds or m:ss):
   trim 0:05-0:20 (keep only that part) · cut 0:03-0:04.5 (remove a part) · speed 2 (0.5 = slow motion)
   crop vertical|square|wide|WxH (fill + crop for Shorts/Reels) · fit vertical (whole frame on a blurred background) · rotate 90 · flip
-  text "Hello!" top|center|bottom [0:01-0:03] [size 72] [color yellow] [box] · title "Big Title" [0:00-0:02] · captions (auto subtitles from speech)
-  fade in 0.5 · fade out 1 · music song.mp3 [volume 0.3] [replace] · volume 1.5 · mute · color bw|vivid|warm|cool|bright|dark|vintage|cinematic
+  text "Hello!" top|center|bottom [0:01-0:03] [pop|slide|drop|fade|type|none] [sound pop] [size 72] [color yellow] [box] · title "Big Title" [0:00-0:02] (titles pop in, text slides up by default; type = typewriter) · captions (auto subtitles from speech)
+  sound pop|whoosh|swipe|ding|success|click|boom|rise|beep 0:02 [volume 0.8] (sound effects) · music song.mp3 [volume 0.3] [replace] · volume 1.5 · mute
+  transition fade|slide|wipe|zoom|circle|smooth|blur|pixel|black|white [0.5] [whoosh] (between joined clips) · zoom 1.3 0:04-0:05 (punch zoom) · zoom slow (slow push-in) · shake 0:06-0:07 · flash 0:08 · progress [top] [color yellow]
+  fade in 0.5 · fade out 1 · color bw|vivid|warm|cool|bright|dark|vintage|cinematic
   logo logo.png [top-right] [size 15%] · overlay sticker.png [center] [0:02-0:05] · overlay lower-third.html [0:02-0:07] (an animated HTML/CSS UI element with a transparent background, rendered on top of the video)
 \`out\`: .mp4 (default videos/NAME-edit.mp4), .webm, .mov or .gif. Never overwrites the input. Afterwards you see key frames of the result.`,
-    example: '<tool:edit_video>\n<input>clip.mp4</input>\n<steps>\ntrim 0:02-0:32\ncrop vertical\ntext "Wait for it…" top 0:00-0:03\ncaptions\nmusic beat.mp3 volume 0.25\nfade out 1\n</steps>\n<out>videos/clip-short.mp4</out>\n</tool:edit_video>',
+    example: '<tool:edit_video>\n<input>clip.mp4</input>\n<steps>\ntrim 0:02-0:32\ncrop vertical\ntitle "Wait for it…" 0:00-0:02 sound pop\nzoom 1.25 0:06-0:07\nsound boom 0:06\ntext "No way!" top 0:06-0:09 slide sound whoosh\nmusic beat.mp3 volume 0.25\nprogress\nfade out 1\n</steps>\n<out>videos/clip-short.mp4</out>\n</tool:edit_video>',
   },
   {
     name: 'watch_video',

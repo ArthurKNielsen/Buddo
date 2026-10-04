@@ -67,3 +67,41 @@ test('says clearly what needs the desktop app', async () => {
   await assert.rejects(runEdit({ inputs: 'clip.mp4', out: './clip.mp4' }, fakeIo()), /overwrite an input/);
   await assert.rejects(runEdit({ inputs: 'clip.mp4', out: 'x.avi' }, fakeIo()), /\.mp4, \.webm, \.mov or \.gif/);
 });
+
+test('parses animations, sound effects and transitions', async () => {
+  const { parseSteps } = await import('../src/index.js');
+  const s = parseSteps(`title "Hi" 0-2 sound pop
+text "yo" top type 1-3
+text "plain" none
+sound whoosh 0:02.5 volume 0.5
+zoom 1.3 0:02-0:04
+zoom slow
+shake 1-2
+flash 0:03
+progress top color #ff0
+transition slide 0.6 whoosh`);
+  assert.deepEqual([s[0].anim, s[0].sound, s[1].anim, s[2].anim], ['pop', 'pop', 'type', 'none']);
+  assert.deepEqual(s[3], { type: 'sfx', name: 'whoosh', at: 2.5, volume: 0.5 });
+  assert.deepEqual(s[4], { type: 'zoom', range: [2, 4], amount: 1.3 });
+  assert.equal(s[5].slow, true);
+  assert.deepEqual(s[6], { type: 'shake', range: [1, 2], strength: 1 });
+  assert.deepEqual(s[7], { type: 'flash', at: 3 });
+  assert.deepEqual(s[8], { type: 'progress', at: 'top', color: '#ff0' });
+  assert.deepEqual(s[9], { type: 'transition', name: 'slide', d: 0.6, sound: 'whoosh' });
+  assert.throws(() => parseSteps('sound fart 2'), /sounds are pop/);
+  assert.throws(() => parseSteps('transition spin'), /transitions are fade/);
+});
+
+test('animates text, mixes sound effects and crossfades clips', async () => {
+  const io = fakeIo();
+  await runEdit({ inputs: 'a.mp4\nb.mp4', steps: 'transition slide 0.5 whoosh\ntitle "Hi" 0-2 sound pop\ntext "typed" type 2-4\nzoom 1.3 3-4' }, io);
+  const join = io.runs[0].join(' ');
+  assert.match(join, /xfade=transition=slideleft:duration=0\.500:offset=5\.500/);
+  assert.match(join, /acrossfade=d=0\.500/);
+  const g = io.texts['/tmp/graph.txt'];
+  assert.match(g, /anoisesrc/, 'whoosh on the transition');
+  assert.match(g, /aevalsrc/, 'pop under the title');
+  assert.match(g, /fontsize='\d+\*if\(lt\(t,0\.35\)/, 'title pops in');
+  assert.match(g, /zoompan=z=/);
+  assert.equal(Object.keys(io.texts).filter((k) => /text\d+\.txt/.test(k)).length, 1 + 5, 'typewriter draws the text in steps');
+});

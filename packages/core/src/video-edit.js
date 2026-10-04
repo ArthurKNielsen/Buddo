@@ -108,7 +108,11 @@ export function parseSteps(text = '') {
         case 'text':
         case 'title':
         case 'caption': {
-          if (text === null && !arg) throw new Error(`"${line}": write text "Your words" [top|center|bottom] [0:01-0:03]`);
+          if (text === null && !arg) throw new Error(`"${line}": write text "Your words" [top|center|bottom] [0:01-0:03] [pop|slide|fade|type|none] [sound pop]`);
+          const soundName = /\b(?:sound|sfx)\s+(\w+)/i.exec(rest)?.[1].toLowerCase();
+          if (soundName && !SFX[soundName]) throw new Error(`"${line}": sounds are ${Object.keys(SFX).join(', ')}`);
+          // Clean motion by default: titles pop in, other text slides up. "none" keeps it still.
+          const anim = /\b(?:anim(?:ation)?\s+)?(pop|slide|rise|drop|fade|type|typewriter|none|static)\b/i.exec(rest.replace(/\b(?:sound|sfx)\s+\w+/i, ''))?.[1].toLowerCase();
           return {
             type: 'text',
             text: text ?? arg,
@@ -117,7 +121,43 @@ export function parseSteps(text = '') {
             size: num(/\bsize\s+(\d+)/i),
             color: /\bcolor\s+(#?[\w]+)/i.exec(rest)?.[1] || 'white',
             box: /\bbox\b/i.test(rest),
+            anim: anim === 'typewriter' ? 'type' : anim === 'rise' ? 'slide' : anim === 'static' ? 'none' : anim || (v === 'title' ? 'pop' : 'slide'),
+            sound: soundName,
           };
+        }
+        case 'sound':
+        case 'sfx':
+        case 'effect': {
+          const name = words[0]?.toLowerCase();
+          if (!SFX[name]) throw new Error(`"${line}": write sound pop 0:02 — sounds are ${Object.keys(SFX).join(', ')}`);
+          const at = parseSeconds(/(?:^|\s)(?:at\s+)?(\d[\d:.]*s?)(?=\s|$)/i.exec(arg.replace(/\bvolume\s+[\d.]+/i, ''))?.[1]) ?? 0;
+          return { type: 'sfx', name, at, volume: num(/\bvolume\s+([\d.]+)/i, 1) };
+        }
+        case 'zoom':
+        case 'punch': {
+          if (/\b(slow|kenburns|ken)\b/i.test(arg)) return { type: 'zoom', slow: true, amount: Math.min(1.5, Math.max(1.02, parseFloat(/\b(\d\.\d+)\b/.exec(arg)?.[1]) || 1.15)) };
+          if (!range) throw new Error(`"${line}": write zoom 1.3 0:02-0:04 (punch in for a moment) or zoom slow (slow push-in)`);
+          const amount = parseFloat(/^\s*(\d+(?:\.\d+)?)\s*x?\b(?!\s*[-–:])/.exec(arg)?.[1]);
+          return { type: 'zoom', range, amount: Math.min(2.5, Math.max(1.02, amount > 0 ? amount : 1.25)) };
+        }
+        case 'shake': {
+          if (!range) throw new Error(`"${line}": write shake 0:02-0:03`);
+          return { type: 'shake', range, strength: Math.min(3, Math.max(0.2, num(/\b(?:strength|power)\s+([\d.]+)/i, 1))) };
+        }
+        case 'flash': {
+          const at = parseSeconds(/(?:^|\s)(?:at\s+)?(\d[\d:.]*s?)(?=\s|$)/i.exec(arg)?.[1]);
+          if (at === undefined) throw new Error(`"${line}": write flash 0:03`);
+          return { type: 'flash', at };
+        }
+        case 'progress':
+        case 'progressbar':
+          return { type: 'progress', at: /\btop\b/i.test(arg) ? 'top' : 'bottom', color: /\bcolor\s+(#?[\w]+)/i.exec(arg)?.[1] || 'white' };
+        case 'transition':
+        case 'transitions': {
+          const name = (words.find((w) => /^[a-z]+$/i.test(w) && !/^(sound|sfx|whoosh|swoosh|swipe|pop|ding|click|boom)$/i.test(w)) || 'fade').toLowerCase();
+          if (!TRANSITIONS[name]) throw new Error(`"${line}": transitions are ${Object.keys(TRANSITIONS).join(', ')}`);
+          const sound = /\b(whoosh|swoosh|swipe|pop|ding|click|boom)\b/i.exec(arg)?.[1].toLowerCase();
+          return { type: 'transition', name, d: Math.min(2, Math.max(0.1, parseFloat(/\b(\d*\.?\d+)\s*s?\b/.exec(arg)?.[1]) || 0.5)), sound };
         }
         case 'captions':
         case 'subtitles':
@@ -163,10 +203,33 @@ export function parseSteps(text = '') {
         case 'photos':
           return { type: 'stills', seconds: Math.min(60, Math.max(0.2, parseFloat(arg) || 3)) };
         default:
-          throw new Error(`Unknown step "${line}". Steps: trim, cut, speed, crop, fit, rotate, flip, text, title, captions, fade, music, volume, mute, overlay, logo, color, stills.`);
+          throw new Error(`Unknown step "${line}". Steps: trim, cut, speed, crop, fit, rotate, flip, text, title, captions, fade, transition, zoom, shake, flash, progress, sound, music, volume, mute, overlay, logo, color, stills.`);
       }
     });
 }
+
+// Sound effects made from math (no files to download), so they work on the website too.
+// Each is an ffmpeg audio source; `t` is seconds since the effect started.
+export const SFX = {
+  pop: ["aevalsrc='0.9*sin(2*PI*(380+2600*exp(-t*38))*t)*exp(-t*28)':s=48000:d=0.18"],
+  click: ["aevalsrc='0.8*sin(2*PI*2200*t)*exp(-t*160)':s=48000:d=0.05"],
+  ding: ["aevalsrc='0.45*sin(2*PI*1320*t)*exp(-t*4)+0.2*sin(2*PI*2640*t)*exp(-t*7)':s=48000:d=1.3"],
+  success: ["aevalsrc='0.4*sin(2*PI*988*t)*exp(-t*6)*lt(t,0.14)+0.45*sin(2*PI*1319*(t-0.12))*exp(-(t-0.12)*4)*gte(t,0.12)':s=48000:d=1.2"],
+  whoosh: ['anoisesrc=color=pink:r=48000:d=0.7:a=0.6', 'highpass=f=250', 'lowpass=f=4500', 'afade=t=in:d=0.35:curve=qsin', 'afade=t=out:st=0.35:d=0.35:curve=qsin', 'volume=2.5'],
+  swipe: ['anoisesrc=color=pink:r=48000:d=0.3:a=0.5', 'highpass=f=600', 'lowpass=f=6000', 'afade=t=in:d=0.12', 'afade=t=out:st=0.12:d=0.18', 'volume=2.5'],
+  boom: ["aevalsrc='0.95*sin(2*PI*(45+90*exp(-t*9))*t)*exp(-t*2.6)':s=48000:d=1.4"],
+  rise: ["aevalsrc='0.35*sin(2*PI*(200*t+700*t*t))*min(1,t*2)':s=48000:d=1.2", 'afade=t=out:st=1:d=0.2'],
+  beep: ["aevalsrc='0.4*sin(2*PI*1000*t)':s=48000:d=0.25", 'afade=t=out:st=0.18:d=0.07'],
+};
+SFX.swoosh = SFX.whoosh;
+SFX.bass = SFX.boom;
+
+const TRANSITIONS = {
+  fade: 'fade', dissolve: 'dissolve', black: 'fadeblack', white: 'fadewhite',
+  slide: 'slideleft', slideleft: 'slideleft', slideright: 'slideright', slideup: 'slideup', slidedown: 'slidedown',
+  wipe: 'wipeleft', wipeleft: 'wipeleft', wiperight: 'wiperight', wipeup: 'wipeup', wipedown: 'wipedown',
+  smooth: 'smoothleft', circle: 'circleopen', zoom: 'zoomin', blur: 'hblur', pixel: 'pixelize', radial: 'radial', squeeze: 'squeezeh',
+};
 
 const POS = {
   'top-left': ['m', 'm'],
@@ -301,23 +364,41 @@ export async function runEdit({ inputs, steps = '', out }, io) {
 
   // 1. Inputs → same size, fps and audio format.
   const parts = [];
+  const transition = files.length > 1 ? ops.find((o) => o.type === 'transition') : null;
+  // Transitions overlap clips at exact times, so then every clip is cut (or padded) to its exact length.
+  const exact = (d) => (transition ? `,tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS` : '');
+  const exactA = (d) => (transition ? `,apad,atrim=duration=${d.toFixed(3)},asetpts=PTS-STARTPTS` : '');
   files.forEach((f, i) => {
     const m = metas[i];
     const k = m.still ? addInput('-loop', '1', '-t', String(stills), '-i', f) : addInput('-i', f);
     const v = label('v');
     const a = label('a');
-    if (m.video || m.still) g.push(`[${k}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS},format=yuv420p[${v}]`);
+    if (m.video || m.still) g.push(`[${k}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS},format=yuv420p${exact(m.duration)}[${v}]`);
     else g.push(`color=black:s=${W}x${H}:r=${FPS}:d=${m.duration.toFixed(3)},format=yuv420p[${v}]`);
-    if (m.audio) g.push(`[${k}:a]aresample=48000,aformat=channel_layouts=stereo[${a}]`);
+    if (m.audio) g.push(`[${k}:a]aresample=48000,aformat=channel_layouts=stereo${exactA(m.duration)}[${a}]`);
     else g.push(`anullsrc=r=48000:cl=stereo,atrim=0:${m.duration.toFixed(3)}[${a}]`);
     parts.push([v, a]);
   });
   let [V, A] = parts[0];
   let dur = metas.reduce((s, m) => s + (m.duration || 0), 0);
+  const transitionTimes = [];
   if (parts.length > 1) {
     // Join in a pass of its own: ffmpeg stalls when a later trim stops reading a concat early.
     const joined = io.temp('joined.mp4');
-    g.push(`${parts.map(([v, a]) => `[${v}][${a}]`).join('')}concat=n=${parts.length}:v=1:a=1[jv][ja]`);
+    if (transition) {
+      const T = Math.max(0.1, Math.min(transition.d, ...metas.map((m) => m.duration / 2 - 0.05)));
+      let [cv, ca] = parts[0];
+      let acc = metas[0].duration;
+      for (let i = 1; i < parts.length; i++) {
+        const [nv, na] = [label('v'), label('a')];
+        const last = i === parts.length - 1;
+        g.push(`[${cv}][${parts[i][0]}]xfade=transition=${TRANSITIONS[transition.name]}:duration=${T.toFixed(3)}:offset=${(acc - T).toFixed(3)}${last ? '[jv]' : `[${nv}]`}`);
+        g.push(`[${ca}][${parts[i][1]}]acrossfade=d=${T.toFixed(3)}${last ? '[ja]' : `[${na}]`}`);
+        transitionTimes.push(acc - T);
+        acc += metas[i].duration - T;
+        [cv, ca] = [nv, na];
+      }
+    } else g.push(`${parts.map(([v, a]) => `[${v}][${a}]`).join('')}concat=n=${parts.length}:v=1:a=1[jv][ja]`);
     await io.ffmpeg([...args, '-filter_complex', g.join(';'), '-map', '[jv]', '-map', '[ja]', ...io.encode('joined.mp4', { audio: true, quality: 'high' }), '-y', joined]);
     args = ['-v', 'error'];
     g = [];
@@ -340,15 +421,53 @@ export async function runEdit({ inputs, steps = '', out }, io) {
   const clampRange = ([a, b]) => [Math.max(0, Math.min(a, dur)), Math.max(0, Math.min(b, dur))];
   const fontOpt = io.font ? `fontfile=${filterPath(io.font)}` : 'font=Sans';
   let textId = 0;
-  const drawText = async (text, { at = 'bottom', range, size, color = 'white', box = false }) => {
+  const n3 = (x) => Number(x.toFixed(3));
+  const drawText = async (text, { at = 'bottom', range, size, color = 'white', box = false, anim = 'none' }) => {
     const px = size || Math.round(Math.min(W, H) / (at === 'center' ? 11 : 15));
-    const tf = io.temp(`text${textId++}.txt`);
-    await io.writeText(tf, wrap(text, Math.max(8, Math.floor((W * 0.86) / (px * 0.58)))));
-    const y = at === 'top' ? 'h*0.08' : at === 'center' || at === 'middle' ? '(h-text_h)/2' : 'h-text_h-h*0.12';
+    const lines = wrap(text, Math.max(8, Math.floor((W * 0.86) / (px * 0.58))));
+    const a = n3(range ? range[0] : 0);
+    const b = n3(range ? Math.min(range[1], 1e6) : 1e6);
+    let y = at === 'top' ? 'h*0.08' : at === 'center' || at === 'middle' ? '(h-text_h)/2' : 'h-text_h-h*0.12';
     const style = box ? `box=1:boxcolor=black@0.55:boxborderw=${Math.round(px * 0.35)}` : `borderw=${Math.max(2, Math.round(px / 14))}:bordercolor=black@0.85:shadowx=0:shadowy=${Math.round(px / 16)}:shadowcolor=black@0.4`;
-    const when = range ? `:enable='between(t,${range[0].toFixed(3)},${Math.min(range[1], 1e6).toFixed(3)})'` : '';
-    return `drawtext=${fontOpt}:textfile=${filterPath(tf)}:fontsize=${px}:fontcolor=${color}:line_spacing=${Math.round(px * 0.2)}:x=(w-text_w)/2:y=${y}:${style}${when}`;
+    const when = range ? `:enable='between(t,${a},${b})'` : '';
+    // Clean motion: ease in, and fade out over the last quarter second when the text leaves before the end.
+    const inTime = { pop: 0.12, slide: 0.3, drop: 0.3, fade: 0.45 }[anim];
+    const out = range && b < dur - 0.05 ? `*clip((${b}-t)/0.25,0,1)` : '';
+    const alpha = inTime ? `:alpha='clip((t-${a})/${inTime},0,1)${out}'` : out ? `:alpha='1${out}'` : '';
+    let fontsize = String(px);
+    const ease = (d) => `pow(1-clip((t-${a})/${d},0,1),3)`;
+    if (anim === 'pop') fontsize = `'${px}*if(lt(t,${n3(a + 0.35)}),max(0.05,1+2.70158*pow((t-${a})/0.35-1,3)+1.70158*pow((t-${a})/0.35-1,2)),1)'`;
+    if (anim === 'slide') y = `'${y}+h*0.05*${ease(0.45)}'`;
+    if (anim === 'drop') y = `'${y}-h*0.05*${ease(0.45)}'`;
+    const draw = async (shown, extra, x = '(w-text_w)/2') => {
+      const tf = io.temp(`text${textId++}.txt`);
+      await io.writeText(tf, shown);
+      return `drawtext=${fontOpt}:textfile=${filterPath(tf)}:fontsize=${fontsize}:fontcolor=${color}:line_spacing=${Math.round(px * 0.2)}:x=${x}:y=${y}:${style}${extra}`;
+    };
+    if (anim !== 'type') return draw(lines, `${alpha}${when}`);
+    // Typewriter: letters appear one by one (in up to 30 steps), left edge fixed so the line doesn't jump.
+    const steps = Math.min(30, lines.replace(/\s/g, '').length);
+    const typing = Math.min(1.6, Math.max(0.3, lines.length * 0.045));
+    const longest = Math.max(...lines.split('\n').map((l) => l.length));
+    const x = `(w-${Math.round(px * 0.62 * longest)})/2`;
+    const out2 = [];
+    for (let i = 1; i <= steps; i++) {
+      const shown = lines.slice(0, Math.ceil((lines.length * i) / steps));
+      const from = n3(a + (typing * (i - 1)) / steps);
+      const to = i === steps ? b : n3(a + (typing * i) / steps);
+      out2.push(await draw(shown, `${out ? `:alpha='1${out}'` : ''}:enable='between(t,${from},${to})'`, x));
+    }
+    return out2.join(',');
   };
+  const addSfx = (name, at, volume = 1) => {
+    if (at >= dur) return;
+    const sfx = label('s');
+    const mixed = label('a');
+    g.push(`${SFX[name].join(',')},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=${volume},adelay=${Math.round(Math.max(0, at) * 1000)}:all=1[${sfx}]`);
+    g.push(`[${A}][${sfx}]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[${mixed}]`);
+    A = mixed;
+  };
+  if (transition?.sound) for (const t of transitionTimes) addSfx(transition.sound, Math.max(0, t - 0.1), 0.8);
   let captions = null;
   const notes = [];
 
@@ -372,7 +491,7 @@ export async function runEdit({ inputs, steps = '', out }, io) {
         break;
       }
       case 'speed': {
-        vf(`setpts=PTS/${op.x}`);
+        vf(`setpts=PTS/${op.x},fps=${FPS}`);
         af(atempo(op.x));
         dur /= op.x;
         break;
@@ -406,7 +525,44 @@ export async function runEdit({ inputs, steps = '', out }, io) {
         break;
       case 'text':
         vf(await drawText(op.text, op));
+        if (op.sound) addSfx(op.sound, op.range ? op.range[0] : 0);
         break;
+      case 'sfx':
+        addSfx(op.name, op.at, op.volume);
+        break;
+      case 'transition':
+        break;
+      case 'zoom': {
+        // zoompan reads frame numbers: the stream is a steady 30 fps here (speed re-times it).
+        const tt = `(in/${FPS})`;
+        let z;
+        if (op.slow) z = `1+${n3(op.amount - 1)}*min(1,in/${Math.max(1, Math.round(dur * FPS))})`;
+        else {
+          const [a, b] = clampRange(op.range);
+          const r = `clip(min((${tt}-${n3(a)})/0.25,(${n3(b)}-${tt})/0.25),0,1)`;
+          z = `1+${n3(op.amount - 1)}*${r}*${r}*(3-2*${r})`;
+        }
+        vf(`zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},setsar=1`);
+        break;
+      }
+      case 'shake': {
+        const [a, b] = clampRange(op.range);
+        const amp = Math.max(2, Math.round(Math.min(W, H) * 0.02 * op.strength));
+        const [base, moved, shaken, o] = [label('x'), label('x'), label('x'), label('v')];
+        g.push(`[${V}]split[${base}][${moved}]`);
+        g.push(`[${moved}]crop=${W - 2 * amp}:${H - 2 * amp}:'${amp}+${amp}*sin(t*53)':'${amp}+${amp}*cos(t*47)',scale=${W}:${H},setsar=1[${shaken}]`);
+        g.push(`[${base}][${shaken}]overlay=0:0:enable='between(t,${n3(a)},${n3(b)})'[${o}]`);
+        V = o;
+        break;
+      }
+      case 'flash':
+        vf(`eq=brightness='0.75*max(0,1-abs(t-${n3(op.at)})/0.18)':eval=frame`);
+        break;
+      case 'progress': {
+        const h = Math.max(6, Math.round(H * 0.008));
+        vf(`drawbox=x=0:y=${op.at === 'top' ? 0 : H - h}:w='iw*min(1,t/${n3(Math.max(0.1, dur))})':h=${h}:color=${op.color}@0.9:t=fill`);
+        break;
+      }
       case 'captions':
         if (!io.transcribe) throw new Error('Auto captions need the Buddo desktop app or `buddo web` (speech recognition runs there). Use text steps with timestamps instead.');
         captions = op;

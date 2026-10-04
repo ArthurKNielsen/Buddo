@@ -1,6 +1,8 @@
 // Lets Buddo screenshot/record pages with Electron's own Chromium (no external browser needed).
 import { BrowserWindow } from 'electron';
 
+let windows = 0;
+
 export function electronBrowserProvider() {
   return {
     name: 'electron',
@@ -14,8 +16,13 @@ export function electronBrowserProvider() {
         height,
         useContentSize: true,
         paintWhenInitiallyHidden: true,
-        webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+        // Its own throwaway session: the request watcher below must never see (or outlive into) the app's own
+        // window, whose requests share the default session. A watcher left on it after this window closed read
+        // win.webContents on the next failed request and crashed the app ("Object has been destroyed").
+        webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `buddo-shot-${++windows}` },
       });
+      const wc = win.webContents;
+      const wcId = wc.id;
       win.webContents.setFrameRate(30);
       win.webContents.setAudioMuted(true);
       const logs = [];
@@ -27,7 +34,8 @@ export function electronBrowserProvider() {
         else if (lvl === 'warning' || lvl === 2) logs.push({ type: 'warning', text });
       });
       win.webContents.on('did-fail-load', (_e, code, desc, url) => failed.push(`${desc} ${url}`));
-      win.webContents.session.webRequest.onCompleted({ urls: ['*://*/*'] }, (d) => d.statusCode >= 400 && d.webContentsId === win.webContents.id && failed.push(`${d.statusCode} ${d.url}`));
+      const requests = wc.session.webRequest;
+      requests.onCompleted({ urls: ['*://*/*'] }, (d) => d.statusCode >= 400 && d.webContentsId === wcId && failed.push(`${d.statusCode} ${d.url}`));
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       // Run `init` before any page script (make_video's virtual clock), like Playwright's addInitScript.
       if (init) {
@@ -61,6 +69,7 @@ export function electronBrowserProvider() {
           return png;
         },
         async close() {
+          requests.onCompleted(null);
           if (!win.isDestroyed()) win.destroy();
         },
       };

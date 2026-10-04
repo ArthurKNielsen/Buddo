@@ -348,6 +348,8 @@ export async function runAgent({
   let lastCallArgs = null;
   let lastSig = '';
   let repeats = 0;
+  const wroteThisTurn = new Set();
+  const rewrites = new Map();
   let incomplete = 0;
   let id = 0;
 
@@ -846,6 +848,31 @@ export async function runAgent({
     repeats = sig === lastSig ? repeats + 1 : 0;
     lastSig = sig;
 
+    // Small models often "apologise" and write the very same file again after it was saved — forever. A write that
+    // changes nothing means the work is already done: finish instead of asking the model again.
+    const finishWith = (text) => {
+      onEvent({ type: 'tool-end', id: call.id, ok: true, output: 'Skipped: nothing would change.' });
+      onEvent({ type: 'text', delta: text });
+      messages.push({ role: 'assistant', content: text });
+      onEvent({ type: 'done' });
+      return { messages, status: 'done' };
+    };
+    if (call.name === 'write_file' && call.args?.path) {
+      const path = String(call.args.path).trim();
+      const now = await workspace.read(path).catch(() => null);
+      const same = (x) => String(x ?? '').replace(/\s+/g, ' ').trim();
+      if (now !== null && wroteThisTurn.has(path) && same(now) === same(call.args.content)) return finishWith(`Done — ${path} is saved.`);
+      // Rewriting the whole file a third time in one go is the same loop with small changes each time.
+      if ((rewrites.get(path) || 0) >= 2) return finishWith(`Done — ${path} is saved (the model kept rewriting it, so Buddo kept the last version). Ask for a specific change if something's missing.`);
+      rewrites.set(path, (rewrites.get(path) || 0) + 1);
+    }
+    if (repeats >= 1 && (call.name === 'write_file' || call.name === 'edit_file')) return finishWith(`Done — ${call.args?.path || 'the file'} is saved.`);
+    if (repeats >= 2) {
+      onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped: the same step three times in a row.' });
+      onEvent({ type: 'error', error: 'The model kept repeating the same step, so Buddo stopped it. Ask again in other words, or try a bigger model.' });
+      return { messages, status: 'error' };
+    }
+
     lastCallArgs = call.args;
     const result = await perform(call, tool);
     if (!result) {
@@ -855,7 +882,10 @@ export async function runAgent({
     }
 
     let output = result.output;
-    if (repeats >= 2) output += '\n\nNote: you have made this exact call several times. Do something different or finish.';
+    if (result.ok && (call.name === 'write_file' || call.name === 'edit_file')) {
+      wroteThisTurn.add(String(call.args?.path || '').trim());
+      if (lite) output = `${output.replace(/ Tip:.*$/, '')}\nSaved. Do NOT write ${call.args?.path} again. If something else is still missing, write only that; if everything asked for is done, reply with one short sentence and no code.`;
+    }
     const images = result.images?.length ? result.images : undefined;
     if (images && !vision) output += '\n(Your current model can\'t see the attached image — use the text description above.)';
     messages.push({ role: 'user', content: `<tool_result name="${call.name}">\n${output}\n</tool_result>`, ...(images && vision ? { images } : {}) });

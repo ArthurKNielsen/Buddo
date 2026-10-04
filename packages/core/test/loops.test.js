@@ -1,0 +1,39 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { runAgent } from '../src/agent.js';
+import { createNodeWorkspace } from '../src/node-workspace.js';
+
+const PAGE = '<!DOCTYPE html>\n<html><body><h1>My Portfolio</h1><p>Projects</p></body></html>';
+
+/** A small model that apologises and writes index.html again after every save (the reported 3B loop). */
+function looping({ drift = false } = {}) {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    async *stream() {
+      calls++;
+      const page = drift ? PAGE.replace('Projects', `Projects ${calls}`) : PAGE;
+      yield { type: 'text', text: `${calls > 1 ? 'I apologize for the confusion. ' : ''}<tool:write_file>\n<path>index.html</path>\n<content>\n${page}\n</content>\n</tool:write_file>` };
+      yield { type: 'finish', reason: 'stop' };
+    },
+  };
+}
+
+for (const drift of [false, true]) {
+  test(`stops a model that keeps rewriting the same file${drift ? ' with small changes' : ''}`, async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-loop-'));
+    const provider = looping({ drift });
+    const events = [];
+    const res = await runAgent({ provider, model: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', workspace: createNodeWorkspace(dir), messages: [{ role: 'user', content: 'make a simple portfolio site' }], mode: 'auto', lite: true, onEvent: (e) => events.push(e) });
+    assert.equal(res.status, 'done');
+    assert.ok(provider.calls <= 3, `asked the model ${provider.calls} times`);
+    assert.match(events.filter((e) => e.type === 'text').map((e) => e.delta).join(''), /Done — index\.html is saved/);
+    assert.match(await fs.readFile(path.join(dir, 'index.html'), 'utf8'), /My Portfolio/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+}

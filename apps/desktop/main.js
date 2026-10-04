@@ -8,6 +8,11 @@ import { spawn } from 'node:child_process';
 import { electronBrowserProvider } from './browser-electron.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+// A stray error in the background (a closed window touched late, a dropped download) must not pop up an
+// "A JavaScript error occurred" box or stop Buddo: log it and keep going.
+process.on('uncaughtException', (e) => console.error('[buddo]', e));
+process.on('unhandledRejection', (e) => console.error('[buddo]', e));
 const statePath = () => path.join(app.getPath('userData'), 'state.json');
 const readState = () => {
   try {

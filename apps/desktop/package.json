@@ -2,7 +2,7 @@
   "name": "buddo-desktop",
   "productName": "Buddo",
   "version": "1.0.0",
-  "description": "Buddo \u2014 free, local AI coding agent",
+  "description": "Buddo — free, local AI coding agent",
   "main": "main.js",
   "type": "module",
   "author": "Buddo",
@@ -12,7 +12,7 @@
     "start": "node prepare.js && electron .",
     "dist": "node prepare.js && electron-builder",
     "dist:mac": "node prepare.js && electron-builder --mac",
-    "dist:win": "node prepare.js && electron-builder --win",
+    "dist:win": "node prepare.js && electron-builder --win --publish never",
     "dist:linux": "node prepare.js && electron-builder --linux"
   },
   "devDependencies": {
@@ -30,6 +30,7 @@
       "app/**/*"
     ],
     "directories": {
+      "app": ".",
       "output": "release"
     },
     "mac": {
@@ -42,13 +43,24 @@
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "icon.png"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "artifactName": "Buddo-Setup.${ext}"
     },
     "linux": {
       "target": [

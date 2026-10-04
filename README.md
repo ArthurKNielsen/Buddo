@@ -65,10 +65,13 @@ npm start            # opens http://127.0.0.1:4141/app in your browser
 
 ```bash
 npm run desktop      # dev run (installs Electron the first time)
-cd apps/desktop && npm run dist   # build installers (.dmg / .exe / .AppImage)
+cd apps/desktop && npm run dist:win   # builds release/Buddo-Setup.exe (run on Windows)
+cd apps/desktop && npm run dist       # or an installer for the system you are on (.dmg / .AppImage)
 ```
 
-Pushing a tag like `v1.0.0` builds installers for macOS, Windows and Linux via GitHub Actions and attaches them to a release.
+**Downloading:** the [Releases page](https://github.com/arthurknielsen/buddo/releases) has one file, **Buddo-Setup.exe**: double-click it and Buddo installs and opens (Windows may show "Windows protected your PC" because the app isn't code-signed yet: **More info → Run anyway**). Direct link: `https://github.com/arthurknielsen/buddo/releases/latest/download/Buddo-Setup.exe`.
+
+**Making a release:** pushing a tag like `v1.0.0` (or running *Release Windows app* from the Actions tab with a tag) builds Buddo-Setup.exe on GitHub and attaches only that file to the release. Mac and Linux users run Buddo from source or use the web app.
 
 ### Terminal CLI
 

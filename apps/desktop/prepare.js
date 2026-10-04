@@ -34,5 +34,6 @@ for (const mod of ['sherpa-onnx-node', `sherpa-onnx-${plat}`, 'onnxruntime-node'
   else console.warn(`  (skipping ${mod}: not installed)`);
 }
 copy(web, path.join(app, 'web'));
-fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ type: 'module', private: true }));
+// No package.json in ./app: electron-builder would take a folder named "app" with one for the whole application
+// (and ask for its name and version). This folder is already ES modules through apps/desktop/package.json.
 console.log('✓ desktop app prepared');

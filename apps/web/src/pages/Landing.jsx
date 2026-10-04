@@ -375,9 +375,9 @@ export default function Landing() {
               <Laptop size={18} />
             </div>
             <h3>Desktop app</h3>
-            <p>macOS, Windows & Linux. Full power: file editing, terminal, tests and git built in.</p>
-            <a href={`${GITHUB}/releases`} target="_blank" rel="noreferrer" className="btn btn-outline">
-              <Monitor size={14} /> Download desktop
+            <p>Windows: one file, double-click and go. Full power: file editing, terminal, tests, git and video editing built in.</p>
+            <a href={`${GITHUB}/releases/latest/download/Buddo-Setup.exe`} className="btn btn-outline">
+              <Monitor size={14} /> Download Buddo.exe
             </a>
           </GlowCard>
           <GlowCard>

@@ -1,33 +1,78 @@
-name: Release desktop apps
+name: Release Windows app
+
+# Builds ONE file, Buddo-Setup.exe, and puts only that file on the Releases page.
+# Run it from the Actions tab (pick a tag like v1.0.0), or push a tag that starts with "v".
+# The tests already ran in CI on the commit being released, so this only builds.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create or update (for example v1.0.0)'
+        required: true
+        default: 'v1.0.0'
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm ci || npm install
-      - run: npm test
       - run: npm run build
-      - name: Build desktop app
+      - name: Build Buddo-Setup.exe
         working-directory: apps/desktop
         run: |
           npm install
-          npx electron-builder --publish always
+          npm run dist:win
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Check the installer is complete
+        run: |
+          ls -la apps/desktop/release
+          size=$(stat -c%s apps/desktop/release/Buddo-Setup.exe)
+          echo "Buddo-Setup.exe is $size bytes"
+          # The app alone is well over 100 MB: a tiny file means something was left out.
+          [ "$size" -gt 50000000 ] || { echo "The installer is too small, something is missing."; exit 1; }
+      - name: Put only the .exe on the Releases page
+        run: |
+          cat > notes.md <<'EOF'
+          ## Download
+
+          **Buddo-Setup.exe**: double-click it. Buddo installs in a few seconds and opens. No account, no API keys.
+
+          Windows may say "Windows protected your PC" because the app isn't code-signed yet. Click **More info**, then **Run anyway**.
+
+          Buddo runs free AI models on your own computer. On first start it walks you through picking one.
+
+          Mac and Linux: run Buddo from source (see the README).
+          EOF
+          EXE=apps/desktop/release/Buddo-Setup.exe
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$EXE" --clobber
+          else
+            gh release create "$TAG" "$EXE" --title "Buddo $TAG" --notes-file notes.md --target "$GITHUB_SHA" --latest
+          fi
+          # Nothing but the .exe, even if an older run attached other files.
+          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+            [ "$asset" = "Buddo-Setup.exe" ] || gh release delete-asset "$TAG" "$asset" --yes
+          done
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'

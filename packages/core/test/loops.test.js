@@ -109,3 +109,29 @@ test('after writing the site, a model that goes back to its todo list finishes a
   assert.ok(calls <= 4, `asked the model ${calls} times`);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+test('files written as code blocks are saved before the model reads them back', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-loop-'));
+  let calls = 0;
+  const seenResults = [];
+  const provider = {
+    async *stream({ messages }) {
+      calls++;
+      const last = messages[messages.length - 1].content;
+      if (calls > 1) seenResults.push(last);
+      // Writes the page, then checks it — in the same reply. Without the file it would write it again, forever.
+      const text = calls === 1 || /not exist|not found/i.test(last)
+        ? 'index.html\n```html\n<!DOCTYPE html>\n<html><head><link rel="stylesheet" href="styles.css"></head><body><h1>Brew & Bean</h1></body></html>\n```\n\nstyles.css\n```css\nbody { background: #f5e6d3; }\n```\n\nLet me check the page.\n<tool:read_file>\n<path>index.html</path>\n</tool:read_file>'
+        : 'The coffee shop page is ready.';
+      yield { type: 'text', text };
+      yield { type: 'finish', reason: 'stop' };
+    },
+  };
+  const res = await runAgent({ provider, model: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', workspace: createNodeWorkspace(dir), messages: [{ role: 'user', content: 'Build this from scratch: a landing page for a coffee shop.' }], mode: 'auto', lite: true, onEvent: () => {} });
+  assert.equal(res.status, 'done');
+  assert.equal(calls, 2, 'one reply to build, one to wrap up');
+  assert.match(seenResults[0], /Buddo saved the code blocks you wrote as files: index\.html, styles\.css/);
+  assert.match(seenResults[0], /Brew & Bean/, 'the read found the page');
+  assert.match(await fs.readFile(path.join(dir, 'styles.css'), 'utf8'), /f5e6d3/);
+  await fs.rm(dir, { recursive: true, force: true });
+});

@@ -352,6 +352,30 @@ export async function runAgent({
   const rewrites = new Map();
   const seen = new Map();
   let missingReads = 0;
+  /** Save the complete, named code blocks in `text` as files (new files, or whole-file rewrites). Returns the paths. */
+  const saveCodeBefore = async (text) => {
+    if (!/```|~~~/.test(text)) return [];
+    let files = extractCodeFiles(text, { wantsCode: true }).filter((f) => !f.inferred && f.path && f.content?.trim() && !hasPlaceholders(f.content));
+    if (!files.length) return [];
+    if (isNewBuild(askedText())) files = linkAssets(files);
+    const saved = [];
+    for (const f of files.slice(0, 12)) {
+      const before = await workspace.read(f.path).catch(() => null);
+      if (before !== null && before.replace(/\s+/g, ' ').trim() === f.content.replace(/\s+/g, ' ').trim()) continue;
+      // An existing file the user asked to change gets the careful edit path at the end of the reply instead.
+      if (before !== null && !createdHere.has(f.path) && !isNewBuild(askedText())) continue;
+      const call = { id: `t${Date.now().toString(36)}${id++}`, name: 'write_file', args: { path: f.path, content: f.content }, auto: true };
+      onEvent({ type: 'tool-start', call, kind: 'write', auto: true });
+      const result = await perform(call, TOOL_MAP.write_file);
+      onEvent({ type: 'tool-end', id: call.id, ok: !!result?.ok, output: result?.output || 'Stopped.', display: result?.display, denied: result?.denied });
+      if (result?.ok) {
+        saved.push(f.path);
+        wroteThisTurn.add(f.path);
+        createdHere.add(f.path);
+      }
+    }
+    return saved;
+  };
   let incomplete = 0;
   let id = 0;
 
@@ -842,6 +866,10 @@ export async function runAgent({
       continue;
     }
 
+    // Files the model wrote as code blocks before this tool call are saved right now, not when the reply ends:
+    // otherwise its "read index.html" fails, it thinks the page was never made, and writes it again (and again).
+    const savedFirst = autoSaveCode && mode !== 'plan' && workspace.write ? await saveCodeBefore(visibleUpToCall.slice(0, a.call.start ?? visibleUpToCall.length)) : [];
+
     const call = { id: `t${Date.now().toString(36)}${id++}`, name: a.call.name, args: a.call.args };
     const tool = TOOL_MAP[call.name];
     onEvent({ type: 'tool-start', call, kind: tool?.kind });
@@ -924,6 +952,7 @@ export async function runAgent({
     }
     const images = result.images?.length ? result.images : undefined;
     if (images && !vision) output += '\n(Your current model can\'t see the attached image — use the text description above.)';
+    if (savedFirst.length) output = `(Buddo saved the code blocks you wrote as files: ${savedFirst.join(', ')}. They exist now; don't write them again.)\n${output}`;
     messages.push({ role: 'user', content: `<tool_result name="${call.name}">\n${output}\n</tool_result>`, ...(images && vision ? { images } : {}) });
     onEvent({ type: 'tool-end', id: call.id, ok: result.ok, output: result.output, display: result.display, denied: result.denied });
   }

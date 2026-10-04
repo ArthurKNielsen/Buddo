@@ -37,3 +37,46 @@ for (const drift of [false, true]) {
     await fs.rm(dir, { recursive: true, force: true });
   });
 }
+
+/** The loop from the bug video: a todo list, read src/app.js (missing), "I apologize…", again. */
+function readsMissing({ listens = false } = {}) {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    async *stream({ messages }) {
+      calls++;
+      const last = messages[messages.length - 1].content;
+      if (listens && /does not exist/.test(last)) {
+        yield { type: 'text', text: 'index.html\n```html\n<!DOCTYPE html>\n<html><body><h1>Coffee Shop</h1></body></html>\n```' };
+      } else {
+        yield { type: 'text', text: `${calls > 1 ? 'I apologize for the confusion. ' : 'Sure, let\'s get started! '}Todo\n1. Create index.html\n2. Create styles.css\n<tool:read_file>\n<path>src/app.js</path>\n</tool:read_file>` };
+      }
+      yield { type: 'finish', reason: 'stop' };
+    },
+  };
+}
+
+test('a model stuck reading a missing file is stopped quickly, with a clear message', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-loop-'));
+  const provider = readsMissing();
+  const events = [];
+  const res = await runAgent({ provider, model: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', workspace: createNodeWorkspace(dir), messages: [{ role: 'user', content: 'Build this from scratch: a modern animated landing page for a coffee shop.' }], mode: 'auto', lite: true, onEvent: (e) => events.push(e) });
+  assert.equal(res.status, 'error');
+  assert.ok(provider.calls <= 3, `asked the model ${provider.calls} times`);
+  assert.match(events.find((e) => e.type === 'error').error, /read files that don't exist \(src\/app\.js\)/);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('told the file is missing and the project empty, the model writes the site', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'buddo-loop-'));
+  const provider = readsMissing({ listens: true });
+  const res = await runAgent({ provider, model: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', workspace: createNodeWorkspace(dir), messages: [{ role: 'user', content: 'Build this from scratch: a modern animated landing page for a coffee shop.' }], mode: 'auto', lite: true, onEvent: () => {} });
+  assert.equal(res.status, 'done');
+  assert.equal(provider.calls, 2);
+  assert.match(await fs.readFile(path.join(dir, 'index.html'), 'utf8'), /Coffee Shop/);
+  const hint = res.messages.find((m) => /does not exist/.test(m.content)).content;
+  assert.match(hint, /The project is empty/);
+  await fs.rm(dir, { recursive: true, force: true });
+});

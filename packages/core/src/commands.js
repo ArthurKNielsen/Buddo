@@ -74,7 +74,7 @@ export const SLASH_COMMANDS = [
     name: 'scaffold',
     desc: 'Create a new project or feature from scratch',
     arg: 'description',
-    prompt: (a) => `Build this from scratch in the workspace: ${a}. Plan with the todo tool, create all files with clean, modern code, and verify it runs if commands are available.`,
+    prompt: (a) => `Build this from scratch: ${a}. The files don't exist yet, so don't read anything first: write every file now (for a website: index.html, styles.css and script.js), complete, with clean, modern code.`,
   },
 ];
 

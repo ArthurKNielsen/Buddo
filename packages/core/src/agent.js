@@ -350,6 +350,8 @@ export async function runAgent({
   let repeats = 0;
   const wroteThisTurn = new Set();
   const rewrites = new Map();
+  const seen = new Map();
+  let missingReads = 0;
   let incomplete = 0;
   let id = 0;
 
@@ -867,9 +869,19 @@ export async function runAgent({
       rewrites.set(path, (rewrites.get(path) || 0) + 1);
     }
     if (repeats >= 1 && (call.name === 'write_file' || call.name === 'edit_file')) return finishWith(`Done — ${call.args?.path || 'the file'} is saved.`);
+    // Loops that take turns ("todo, read src/app.js, sorry, todo, read src/app.js…") repeat a step without it being
+    // the last one: count every step of this turn.
+    const seenBefore = seen.get(sig) || 0;
+    seen.set(sig, seenBefore + 1);
+    if (seenBefore >= 2) repeats = 2;
     if (repeats >= 2) {
       onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped: the same step three times in a row.' });
-      onEvent({ type: 'error', error: 'The model kept repeating the same step, so Buddo stopped it. Ask again in other words, or try a bigger model.' });
+      onEvent({
+        type: 'error',
+        error: call.name === 'read_file' && missingReads
+          ? `The model kept trying to read files that don't exist (${call.args?.path}) instead of writing code, so Buddo stopped it. Try asking again, or a bigger model.`
+          : 'The model kept repeating the same step, so Buddo stopped it. Ask again in other words, or try a bigger model.',
+      });
       return { messages, status: 'error' };
     }
 
@@ -882,6 +894,17 @@ export async function runAgent({
     }
 
     let output = result.output;
+    // Reading a file that isn't there (often one copied from an example): say plainly what to do instead.
+    if (!result.ok && call.name === 'read_file' && /not found/i.test(result.output)) {
+      missingReads++;
+      const files = (await workspace.list('.', 2).catch(() => [])).filter((e) => e.type === 'file').map((e) => e.path);
+      output = `${call.args?.path} does not exist. ${files.length ? `The files that exist are: ${files.slice(0, 30).join(', ')}.` : 'The project is empty: nothing has been written yet.'} Do not read files that don't exist and don't apologise.${files.length && !isNewBuild(askedText()) ? '' : ' Write the files for the request now, each one complete.'}`;
+      if (missingReads >= 3) {
+        onEvent({ type: 'tool-end', id: call.id, ok: false, output });
+        onEvent({ type: 'error', error: `The model kept trying to read files that don't exist (${call.args?.path}) instead of writing code, so Buddo stopped it. Try asking again, or a bigger model.` });
+        return { messages, status: 'error' };
+      }
+    }
     if (result.ok && (call.name === 'write_file' || call.name === 'edit_file')) {
       wroteThisTurn.add(String(call.args?.path || '').trim());
       if (lite) output = `${output.replace(/ Tip:.*$/, '')}\nSaved. Do NOT write ${call.args?.path} again. If something else is still missing, write only that; if everything asked for is done, reply with one short sentence and no code.`;

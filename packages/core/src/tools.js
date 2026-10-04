@@ -20,7 +20,7 @@ export const TOOLS = [
     lite: true,
     params: ['path', 'start', 'end'],
     desc: 'Read a file. Output has line numbers (do NOT copy them into edits). Optional `start`/`end` line numbers for big files.',
-    example: '<tool:read_file>\n<path>src/app.js</path>\n</tool:read_file>',
+    example: '<tool:read_file>\n<path>index.html</path>\n</tool:read_file>',
   },
   {
     name: 'search',

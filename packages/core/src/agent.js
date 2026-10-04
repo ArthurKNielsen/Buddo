@@ -3,7 +3,8 @@
 
 import { analyze, splitThinking } from './parser.js';
 import { executeTool, TOOL_MAP } from './tools.js';
-import { buildSystemPrompt, filesNote } from './prompt.js';
+import { buildSystemPrompt, filesNote, toolSchemas, availableTools } from './prompt.js';
+import { toolCallText, forcedCallSchema, parseForcedCall, promisesAction, findLoop, dropRepeats, sameAnswer, PROTOCOL_EXAMPLE } from './behave.js';
 import { formatTree } from './tree.js';
 import { LEARN_PROMPT, parseLearned, normalizeProfile } from './personality.js';
 import { missingColors } from './colors.js';
@@ -22,6 +23,17 @@ const CLAIMS_DONE = /\b(?:i(?:'ve|’ve| have)?|has been|have been|is now|are no
 const copiedExample = (code = '') =>
   code.replace(/<!doctype[^>]*>|<\/?(?:html|head|body)\b[^>]*>|<meta\b[^>]*>|<title>[\s\S]*?<\/title>|\s+/gi, '').toLowerCase() === '<h1>hello</h1>' ||
   code.trim() === 'print("Hi")';
+
+// "Tests pass", "I ran it": only true when a command actually ran.
+const CLAIMS_RAN = /\b(?:i(?:'ve|’ve| have)? (?:ran|run|tested|executed)|tests? (?:all )?(?:pass(?:ed|es)?|succeed(?:ed)?)|it (?:works|runs) (?:now|fine|correctly))\b/i;
+
+// What each model can do (Ollama's /api/show), asked once per model.
+const capsCache = new Map();
+async function modelCapabilities(provider, model) {
+  const key = `${provider.id}:${model}`;
+  if (!capsCache.has(key)) capsCache.set(key, Promise.resolve(provider.modelInfo?.(model)).then((i) => i?.capabilities || []).catch(() => []));
+  return capsCache.get(key);
+}
 
 // Vision models spend roughly this many tokens per attached image.
 const IMAGE_TOKENS = 1000;
@@ -160,11 +172,24 @@ export async function runAgent({
   autoSaveCode = true,
   thinkAloud = false,
   quickEdits = true,
+  // 'auto': built-in tool calling for models that support it (Ollama says "tools"); true / false to force it.
+  nativeTools = 'auto',
 }) {
   const ctx = context || (await gatherContext(workspace));
+  const native =
+    !lite && nativeTools !== false && !!provider.supports?.tools && (nativeTools === true || (nativeTools === 'auto' && provider.id === 'ollama' && (await modelCapabilities(provider, model)).includes('tools')));
+  const schemas = native ? toolSchemas(workspace, { profile }) : null;
+  // A reply that only promises to act ("I'll create main.py") is asked again with its answer forced into a tool
+  // call: the engine only lets it write {"tool": …, "args": …}.
+  const forceTools = availableTools(workspace, { lite, profile });
+  const canForce = !!provider.supports?.format && mode !== 'plan';
+  let forceNext = null;
+  let forced = 0;
+  let ranCommand = false;
+  let repeatNudged = false;
   // The file list rides along with the user's message, not in the system prompt: the prompt stays word for word the
   // same between messages, so Ollama / llama.cpp reuse what they already read (the "reading your message" wait).
-  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx, filesInSystem: false });
+  const system = buildSystemPrompt({ workspace, mode, vision, profile, lite, thinkAloud, ...ctx, filesInSystem: false, nativeTools: native });
   const note = filesNote(ctx, { lite });
   const alwaysAllowed = new Set();
   let wroteFiles = false;
@@ -496,9 +521,13 @@ export async function runAgent({
     let stopForTool = false;
     let announced = false;
     let streamedSize = -1;
+    let loopAt = -1;
+    const forcing = forceNext;
+    forceNext = null;
 
     const at = messages.indexOf(requestMsg);
-    const wire = [{ role: 'system', content: system }, ...compactForModel(slimHistory(messages), contextBudget).map((m, i) => (i === at && note ? { ...m, content: `${m.content}\n\n${note}` } : m))].map((m) =>
+    // Models on Buddo's text protocol see one tiny worked example first (they copy patterns better than rules).
+    const wire = [{ role: 'system', content: system }, ...(native || lite ? [] : PROTOCOL_EXAMPLE), ...compactForModel(slimHistory(messages), contextBudget).map((m, i) => (i === at && note ? { ...m, content: `${m.content}\n\n${note}` } : m))].map((m) =>
       vision || !m.images ? m : { role: m.role, content: m.content },
     );
     // Tell UIs what the model is reading right now (before the first token, it is "reading the prompt").
@@ -514,6 +543,8 @@ export async function runAgent({
     try {
       // After an empty reply, ask for a fresh start (engines that cache the conversation drop that cache).
       const opts = { num_ctx: contextBudget, temperature: freshNext ? Math.max(temperature, 0.6) : temperature, fresh: freshNext };
+      if (forcing) opts.format = forcedCallSchema(forceTools);
+      else if (schemas) opts.tools = schemas;
       freshNext = false;
       for await (const chunk of provider.stream({ model, messages: wire, signal: ctrl.signal, options: opts })) {
         if (chunk.type === 'finish') {
@@ -531,8 +562,28 @@ export async function runAgent({
           usage = chunk;
           continue;
         }
-        raw += chunk.text;
+        // A forced reply is JSON: collect it quietly, it becomes a tool call below.
+        if (forcing) {
+          if (chunk.type === 'text') raw += chunk.text;
+          continue;
+        }
+        // Built-in tool calling: the call arrives whole; write it in the text protocol so everything after is the same.
+        if (chunk.type === 'tool_call') {
+          if (!chunk.name) continue;
+          const t = toolCallText(chunk.name, chunk.args);
+          raw += `${raw.trim() ? '\n\n' : ''}${t}`;
+          onEvent({ type: 'raw', delta: t });
+        } else raw += chunk.text;
         const a = analyze(raw);
+        // Going round in circles ("I will now… I will now… I will now…"): stop it here.
+        if (!a.call) {
+          const cut = findLoop(a.prose);
+          if (cut >= 0) {
+            loopAt = cut;
+            ctrl.abort();
+            break;
+          }
+        }
         if (a.thinking.length > sentThink) {
           onEvent({ type: 'thinking', delta: a.thinking.slice(sentThink) });
           sentThink = a.thinking.length;
@@ -563,7 +614,7 @@ export async function runAgent({
         }
       }
     } catch (err) {
-      if (!(stopForTool || (signal?.aborted && err?.name === 'AbortError') || signal?.aborted)) {
+      if (!(stopForTool || loopAt >= 0 || (signal?.aborted && err?.name === 'AbortError') || signal?.aborted)) {
         onEvent({ type: 'error', error: err?.message || String(err) });
         return { messages, status: 'error' };
       }
@@ -572,6 +623,19 @@ export async function runAgent({
     if (usage) onEvent({ type: 'usage', ...usage });
     if (finish) onEvent({ type: 'finish', reason: finish });
 
+    if (forcing) {
+      const fc = parseForcedCall(raw, forceTools.map((t) => t.name));
+      raw = fc ? `${forcing.prose}\n\n${toolCallText(fc.name, fc.args)}` : forcing.prose;
+      sentProse = forcing.prose.length;
+      if (fc) onEvent({ type: 'raw', delta: `\n${toolCallText(fc.name, fc.args)}` });
+    }
+    if (loopAt >= 0) {
+      const prose = analyze(raw).prose;
+      raw = prose.slice(0, loopAt).trimEnd();
+      onEvent({ type: 'text-replace', remove: sentProse, text: raw });
+      sentProse = raw.length;
+      onEvent({ type: 'nudge', text: 'The model started repeating itself — Buddo cut it off there' });
+    }
     const a = analyze(raw);
     // flush remaining prose
     if (!a.call && a.prose.length > sentProse) onEvent({ type: 'text', delta: a.prose.slice(sentProse) });
@@ -583,7 +647,7 @@ export async function runAgent({
     }
 
     if (!a.call) {
-      const text = a.prose.trim();
+      let text = a.prose.trim();
       if (!text && !a.thinking && !nativeThinking) {
         const full = finish === 'length';
         // Small models sometimes answer with nothing. Ask once more before giving up.
@@ -604,6 +668,34 @@ export async function runAgent({
       const wantsCode = asksForCode(askedText());
       const canSave = autoSaveCode && !wroteFiles && mode !== 'plan' && !!workspace.write;
       const hasCode = /```|~~~/.test(fenceRawHtml(text)) || parseFindReplace(text).length > 0;
+
+      // Never say the same thing twice: paragraphs it already wrote in this reply go.
+      const once = dropRepeats(text);
+      if (once !== text) {
+        onEvent({ type: 'text-replace', remove: sentProse, text: once });
+        sentProse = once.length;
+        text = once;
+      }
+      // It promised to act, said it was done, or answered a build request with only words: make it call a tool.
+      const hollow = !hasCode && !/\?\s*$/.test(text) && (promisesAction(text) || (!wroteFiles && CLAIMS_DONE.test(text) && (wantsCode || looksLikeEdit(askedText()))) || (native && canSave && (isNewBuild(askedText()) || looksLikeEdit(askedText())) && !/^\s*(what|why|how|when|where|who|which|explain|is|are|does|do|can|could|should)\b/i.test(askedText())));
+      if (hollow && canForce && forced < 2 && (canSave || promisesAction(text))) {
+        forced++;
+        forceNext = { prose: text };
+        onEvent({ type: 'nudge', text: promisesAction(text) ? 'The model said it would do something but didn\'t — making it use a tool' : 'The model answered in words — making it use a tool' });
+        continue;
+      }
+      // The same answer it already gave earlier in the chat: ask once for an answer to this message instead.
+      const before = messages.slice(0, messages.indexOf(requestMsg)).filter((m) => m.role === 'assistant').slice(-3);
+      if (!hasCode && !repeatNudged && before.some((m) => sameAnswer(text, m.content))) {
+        repeatNudged = true;
+        onEvent({ type: 'text-replace', remove: sentProse, text: '' });
+        messages.push({ role: 'assistant', content: text });
+        messages.push({ role: 'user', content: `You already said that earlier, almost word for word. Don't repeat it. Answer this message instead: "${askedText()}"` });
+        onEvent({ type: 'nudge', text: 'The model repeated an earlier answer — asked it for a new one' });
+        continue;
+      }
+      // Honesty: it says it ran something, but no command ran.
+      if (CLAIMS_RAN.test(text) && !ranCommand && !hasCode) onEvent({ type: 'nudge', text: "Heads up: the reply says something was run or tested, but no command ran in this reply." });
 
       // Small models sometimes claim they "can't create files". Remind them that Buddo saves files.
       if (canSave && nudges < MAX_NUDGES && wantsCode && isRefusal(text) && !hasCode) {
@@ -954,6 +1046,7 @@ export async function runAgent({
 
     lastCallArgs = call.args;
     const result = await perform(call, tool);
+    if (result?.ok && call.name === 'run_command') ranCommand = true;
     if (!result) {
       onEvent({ type: 'tool-end', id: call.id, ok: false, output: 'Stopped.' });
       onEvent({ type: 'stopped' });

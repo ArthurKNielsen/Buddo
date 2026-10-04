@@ -1,7 +1,7 @@
 export { TOOLS, TOOL_MAP, executeTool, describeCall, parseTodos, locateSnippet, parseTime } from './tools.js';
 export { analyze, findToolCall, parseArgs, splitThinking } from './parser.js';
 export { runAgent, gatherContext, compactForModel, contextTokens, estimateTokens, learnAboutUser } from './agent.js';
-export { buildSystemPrompt, availableTools, filesNote } from './prompt.js';
+export { buildSystemPrompt, availableTools, filesNote, toolSchemas } from './prompt.js';
 export { webSearch, formatSearch, parseDdgHtml, parseDdgLite, parseMojeek } from './websearch.js';
 export { VIBES, VERBOSITY, EMOJI, DEFAULT_PROFILE, normalizeProfile, addMemory, personalityPrompt } from './personality.js';
 export { ollamaProvider, openaiCompatProvider, RECOMMENDED_MODELS, guessVision, isTinyModel, thinksNatively } from './providers.js';

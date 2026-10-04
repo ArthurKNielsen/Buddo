@@ -220,6 +220,13 @@ export async function send(prompt, { display, mode, attachments = [], hidden = f
           if (last()?.type === 'text') last().text += e.delta;
           else draft.parts.push({ type: 'text', text: e.delta });
           break;
+        case 'text-replace': {
+          // Buddo cut a loop or a repeated paragraph: swap what this step showed for the cleaned-up text.
+          const part = last()?.type === 'text' ? last() : null;
+          if (part) part.text = part.text.slice(0, Math.max(0, part.text.length - e.remove)) + e.text;
+          else if (e.text) draft.parts.push({ type: 'text', text: e.text });
+          break;
+        }
         case 'tool-stream':
           if (!S().settings.liveCode) break;
           if (last()?.type === 'thinking') Object.assign(last(), { done: true, endedAt: Date.now() });

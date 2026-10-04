@@ -74,6 +74,17 @@
       "app/node_modules/sherpa-onnx-*/**",
       "app/node_modules/onnxruntime-node/**",
       "app/node_modules/ffmpeg-static/**"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "arthurknielsen",
+        "repo": "buddo"
+      }
     ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arthurknielsen/buddo.git"
   }
 }

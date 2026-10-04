@@ -13,7 +13,7 @@ export async function checkForUpdate({ quiet = false } = {}) {
   if (!d) return;
   setUpdate({ checking: true, error: null });
   const r = await d.checkUpdate().catch((e) => ({ error: e.message }));
-  setUpdate({ checking: false, info: r.error ? null : r, error: r.error || null, current: r.current, checkedAt: Date.now() });
+  setUpdate({ checking: false, info: r.error ? null : r, error: r.error || null, current: r.current, checkedAt: Date.now(), ...(r.ready ? { stage: 'ready' } : {}) });
   if (!quiet && !r.error && !r.available) useStore.getState().toast(`Buddo is up to date (v${r.current}).`, 'success');
   if (!quiet && r.error) useStore.getState().toast(`Couldn't check for updates: ${r.error}`, 'error');
 }
@@ -21,7 +21,9 @@ export async function checkForUpdate({ quiet = false } = {}) {
 export async function installUpdate() {
   const d = desktop();
   if (!d) return;
-  setUpdate({ stage: 'download', got: 0, total: useStore.getState().update?.info?.size || 0, error: null });
+  const u = useStore.getState().update;
+  // Already downloaded in the background: straight to installing.
+  setUpdate(u?.stage === 'ready' || u?.info?.ready ? { stage: 'install', error: null } : { stage: 'download', got: 0, total: u?.info?.size || 0, error: null });
   const r = await d.installUpdate();
   if (r?.opened) setUpdate({ stage: null });
   else if (!r?.ok) setUpdate({ stage: 'error', error: r?.error || 'The update failed.' });
@@ -35,7 +37,7 @@ export function UpdateBanner() {
     if (!d) return;
     d.version?.().then((v) => setUpdate({ current: v })).catch(() => {});
     const off = d.onUpdate?.((m) => {
-      if (m.stage === 'available') setUpdate({ info: m });
+      if (m.stage === 'available') setUpdate({ info: m, ...(m.ready ? { stage: 'ready' } : {}) });
       else setUpdate({ stage: m.stage, got: m.got, total: m.total, error: m.error || null });
     });
     const t = setTimeout(() => checkForUpdate({ quiet: true }), 3000);
@@ -44,13 +46,14 @@ export function UpdateBanner() {
       off?.();
     };
   }, []);
-  const show = !!(u?.info?.available && !u.dismissed) || u?.stage === 'download' || u?.stage === 'install' || u?.stage === 'error';
+  // Background downloads stay quiet; the card shows when there's something to do (or the user started it).
+  const show = !u?.dismissed && (u?.stage === 'ready' || u?.stage === 'install' || u?.stage === 'error' || (u?.info?.available && !u?.info?.canInstall));
   return (
     <AnimatePresence>
       {show && (
         <motion.div className="update-card" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}>
           <UpdateBody u={u} compact />
-          {!u.stage && (
+          {u.stage !== 'install' && (
             <button className="icon-btn sm update-x" title="Later" onClick={() => setUpdate({ dismissed: true })}>
               <X size={13} />
             </button>
@@ -75,11 +78,24 @@ function UpdateBody({ u, compact }) {
       </div>
     );
   }
+  if (u?.stage === 'ready') {
+    return (
+      <div className="update-body">
+        <b>
+          <Download size={14} /> Buddo v{info?.version || u.version || ''} is ready
+        </b>
+        <span className="faint">It installs by itself when you close Buddo. Or restart now:</span>
+        <button className="btn btn-sm btn-primary" onClick={installUpdate}>
+          <RefreshCw size={13} /> Restart to update
+        </button>
+      </div>
+    );
+  }
   if (u?.stage === 'install') {
     return (
       <div className="update-body">
-        <b>Installing…</b>
-        <span className="faint">Buddo closes and opens again on the new version.</span>
+        <b>Updating…</b>
+        <span className="faint">Buddo closes for a few seconds and opens again on the new version.</span>
       </div>
     );
   }
@@ -90,7 +106,7 @@ function UpdateBody({ u, compact }) {
         <span className="faint">{u.error}</span>
         <div className="row" style={{ gap: 6 }}>
           <button className="btn btn-sm btn-primary" onClick={installUpdate}>Try again</button>
-          <button className="btn btn-sm btn-outline" onClick={() => setUpdate({ stage: null, error: null, dismissed: true })}>Close</button>
+          <button className="btn btn-sm btn-outline" onClick={() => setUpdate({ stage: null, error: null, dismissed: true })}>Later</button>
         </div>
       </div>
     );

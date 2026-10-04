@@ -78,6 +78,7 @@ export default function Composer() {
   const [drag, setDrag] = useState(false);
   const ta = useRef(null);
   const fileInput = useRef(null);
+  const videoInput = useRef(null);
   const settings = useStore((s) => s.settings);
   const running = useStore((s) => s.running);
   const session = useStore((s) => s.sessions.find((x) => x.id === s.activeId));
@@ -322,7 +323,12 @@ export default function Composer() {
             <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}>
               <Paperclip size={16} />
             </button>
-            <input ref={fileInput} type="file" multiple hidden onChange={(e) => addFiles([...e.target.files])} />
+            <input ref={fileInput} type="file" multiple hidden onChange={(e) => (addFiles([...e.target.files]), (e.target.value = ''))} />
+            {/* Phones only offer videos when the picker asks for them, so videos get their own button. */}
+            <button className="icon-btn" title="Add a video or music to edit" onClick={() => videoInput.current?.click()}>
+              <Film size={16} />
+            </button>
+            <input ref={videoInput} type="file" accept="video/*,audio/*" multiple hidden onChange={(e) => (addFiles([...e.target.files]), (e.target.value = ''))} />
             <AnimatePresence mode="wait" initial={false}>
               {busy ? (
                 <motion.button key="stop" className="send stop" onClick={stop} initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} title="Stop (esc)">

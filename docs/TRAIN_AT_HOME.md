@@ -5,7 +5,7 @@
 - **Any Windows, Mac or Linux computer.** A CPU alone works, it's just slower.
 - **Python 3.10 or newer** from [python.org](https://www.python.org/downloads/). On Windows, tick **"Add python.exe to PATH"** in the installer.
 - **Git** from [git-scm.com](https://git-scm.com/downloads), plus **Node.js** from [nodejs.org](https://nodejs.org/) for the chat app.
-- About 5 GB of free disk space.
+- **About 8 GB of free disk space** (most of it is PyTorch) and 8 GB+ of RAM. See [How much space it takes](#how-much-space-it-takes).
 
 | Your computer | Pick | Rough time | Model |
 |---|---|---|---|
@@ -88,6 +88,23 @@ npm start
 Open http://localhost:3000. Your phone can use the `On your phone` link it prints, as long as it's on the same Wi-Fi.
 
 **Size limit for the hosted claude.ai link:** it can only carry the small model. Medium and large models are too big for it, so use `npm start` for those, or put the `public/` folder on any static web host.
+
+## How much space it takes
+
+For the RTX 3060 recipe (medium model, 300 MB of code):
+
+| What | Size |
+|---|---|
+| PyTorch with CUDA (the biggest part) | ~4.5 GB |
+| pip's download cache (free it after: `pip cache purge`) | ~2.5 GB |
+| Extra packages for code (django, pandas…) | ~0.5 GB |
+| Python + Git + Node.js | ~0.6 GB |
+| Buddo repo | 20 MB |
+| Training data (`work/data`) | ~0.25 GB |
+| Checkpoints and finished model (`work/`, `public/`) | ~0.25 GB |
+| **Total** | **~8.5 GB, ~6 GB after `pip cache purge`** |
+
+Buddo itself is only about **0.5 GB** of that, and the finished medium model is **32 MB**. While training it uses about 2–3 GB of RAM and 4–6 GB of graphics memory.
 
 ## Making it smarter
 

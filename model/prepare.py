@@ -111,13 +111,15 @@ def init_worker(path):
     tok = Tokenizer.load(path)
 
 
+# Workers hand back compact uint16 arrays (2 bytes a token), not Python lists
+# (~36 bytes a token), so hundreds of MB of code fit comfortably in RAM.
 def encode_text(text):
-    return tok.encode(text)
+    return np.array(tok.encode(text) + [END], dtype=np.uint16)
 
 
 def encode_pair(pair):
     q, a = pair
-    return [USER] + tok.encode(q) + [BOT] + tok.encode(a) + [END]
+    return np.array([USER] + tok.encode(q) + [BOT] + tok.encode(a) + [END], dtype=np.uint16)
 
 
 def main():
@@ -147,24 +149,20 @@ def main():
 
     with Pool(os.cpu_count(), initializer=init_worker, initargs=(tok_path,)) as pool:
         raw = pool.map(encode_text, code, chunksize=16)
+        del code
         sft = pool.map(encode_pair, pairs, chunksize=256)
 
-    def write(name, seqs, sep):
-        flat = []
-        for s in seqs:
-            flat.extend(s)
-            if sep is not None:
-                flat.append(sep)
-        arr = np.array(flat, dtype=np.uint16)
+    def write(name, seqs):
+        arr = np.concatenate(seqs)
         arr.tofile(os.path.join(out_dir, name))
         print(f"{name}: {len(arr) / 1e6:.1f}M tokens")
 
     n_val = max(1, len(raw) // 50)
-    write("raw_train.bin", raw[n_val:], END)
-    write("raw_val.bin", raw[:n_val], END)
+    write("raw_train.bin", raw[n_val:])
+    write("raw_val.bin", raw[:n_val])
     n_val = max(1, len(sft) // 50)
-    write("sft_train.bin", sft[n_val:], None)
-    write("sft_val.bin", sft[:n_val], None)
+    write("sft_train.bin", sft[n_val:])
+    write("sft_val.bin", sft[:n_val])
 
 
 if __name__ == "__main__":

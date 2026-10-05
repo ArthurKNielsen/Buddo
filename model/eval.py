@@ -73,8 +73,7 @@ def main():
     results = {}
     for ckpt in ckpts:
         torch.manual_seed(0)
-        model = train.GPT(train.CONFIG)
-        model.load_state_dict(torch.load(ckpt))
+        model = train.load_model(ckpt)
         model.eval()
         passed, log = 0, []
         for prompt, item in questions:

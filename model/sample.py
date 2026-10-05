@@ -29,8 +29,7 @@ def reply(model, tok, prompt, max_new=200, temperature=0.5, top_k=40):
 def main():
     data_dir, ckpt, prompts = sys.argv[1], sys.argv[2], sys.argv[3:]
     torch.manual_seed(0)
-    model = train.GPT(train.CONFIG)
-    model.load_state_dict(torch.load(ckpt))
+    model = train.load_model(ckpt)
     model.eval()
     tok = Tokenizer.load(f"{data_dir}/tokenizer.json")
     for p in prompts:

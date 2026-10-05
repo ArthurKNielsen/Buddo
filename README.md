@@ -35,6 +35,10 @@ You can host the `public/` folder on any static web host. There's nothing to run
 
 ## Retrain the model
 
+**On your own PC (easiest):** follow [docs/TRAIN_AT_HOME.md](docs/TRAIN_AT_HOME.md), which comes down to `python model/train_all.py`. It uses an NVIDIA GPU or Apple Silicon automatically and can train bigger models (`--size medium` / `large`).
+
+Step by step:
+
 Needs Python 3 with `torch` and `numpy` (PyTorch is only used for training math; the model code is ours).
 
 ```bash

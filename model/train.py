@@ -21,6 +21,32 @@ import torch.nn.functional as F
 
 CONFIG = dict(vocab_size=4096, n_layer=6, n_head=6, d_model=192, train_ctx=256)
 
+# Bigger brains for faster computers. "small" is what the phone app ships today.
+SIZES = {
+    "small": CONFIG,  # 3.5M params: fine on a CPU
+    "medium": dict(vocab_size=4096, n_layer=8, n_head=8, d_model=384, train_ctx=512),  # ~16M: wants a GPU
+    "large": dict(vocab_size=4096, n_layer=12, n_head=12, d_model=576, train_ctx=512),  # ~50M: wants a good GPU
+}
+
+
+def pick_device(name="auto"):
+    if name != "auto":
+        return name
+    if torch.cuda.is_available():
+        return "cuda"  # NVIDIA graphics card
+    if torch.backends.mps.is_available():
+        return "mps"  # Apple Silicon Mac
+    return "cpu"
+
+
+def load_model(ckpt_path, device="cpu"):
+    """Load a checkpoint, using the config.json saved next to it (or the small default)."""
+    cfg_path = os.path.join(os.path.dirname(ckpt_path), "config.json")
+    cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else CONFIG
+    model = GPT(cfg)
+    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+    return model.to(device)
+
 
 def alibi_slopes(n_head):
     return [2 ** (-8 * (h + 1) / n_head) for h in range(n_head)]
@@ -42,7 +68,7 @@ class Block(nn.Module):
         h = self.ln1(x)
         q, k, v = self.qkv(h).split(C, dim=2)
         q, k, v = (t.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) for t in (q, k, v))
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=bias)
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=bias.to(q.dtype))
         x = x + self.proj(y.transpose(1, 2).reshape(B, T, C))
         x = x + self.out(F.gelu(self.fc(self.ln2(x)), approximate="tanh"))
         return x
@@ -118,7 +144,8 @@ def batches(data_dir, split, batch, ctx, mix):
 def evaluate(model, data_dir, batch, ctx, mix, steps=10):
     model.eval()
     it = batches(data_dir, "val", batch, ctx, mix)
-    loss = sum(model(*next(it)).item() for _ in range(steps)) / steps
+    device = next(model.parameters()).device
+    loss = sum(model(*(t.to(device) for t in next(it))).item() for _ in range(steps)) / steps
     model.train()
     return loss
 
@@ -150,18 +177,26 @@ def main():
     ap.add_argument("--init", help="start from these weights (for fine-tuning)")
     ap.add_argument("--mix", default="raw:1,sft:1", help="dataset shares, e.g. raw:1,sft:1,tasks:2")
     ap.add_argument("--warmup", type=int, default=100)
+    ap.add_argument("--size", choices=SIZES, default="small", help="model size (ignored with --init/--resume)")
+    ap.add_argument("--device", default="auto", help="auto, cuda, mps or cpu")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     torch.manual_seed(1337)
     np.random.seed(1337)
     torch.set_num_threads(os.cpu_count())
 
-    model = GPT(CONFIG)
+    device = pick_device(args.device)
     ckpt_path = os.path.join(args.out_dir, "ckpt.pt")
     if args.resume and os.path.exists(ckpt_path):
-        model.load_state_dict(torch.load(ckpt_path))
+        model = load_model(ckpt_path, device)
     elif args.init:
-        model.load_state_dict(torch.load(args.init))
+        model = load_model(args.init, device)
+    else:
+        model = GPT(SIZES[args.size]).to(device)
+    cfg = model.cfg
+    with open(os.path.join(args.out_dir, "config.json"), "w") as f:
+        json.dump(cfg, f)
+    print(f"training on {device}", flush=True)
     mix = {k: float(v) for k, v in (part.split(":") for part in args.mix.split(","))}
     print(f"{sum(p.numel() for p in model.parameters()) / 1e6:.2f}M parameters", flush=True)
 
@@ -172,7 +207,7 @@ def main():
         lr=args.lr, betas=(0.9, 0.95),
     )
 
-    ctx = CONFIG["train_ctx"]
+    ctx = cfg["train_ctx"]
     it = batches(args.data_dir, "train", args.batch, ctx, mix)
     budget = args.minutes * 60
     start = time.time()
@@ -184,8 +219,9 @@ def main():
         lr = args.lr * min(1, (step + 1) / warmup) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress)))
         for g in opt.param_groups:
             g["lr"] = lr
-        x, y = next(it)
-        loss = model(x, y)
+        x, y = (t.to(device) for t in next(it))
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
+            loss = model(x, y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

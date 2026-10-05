@@ -86,24 +86,38 @@ class GPT(nn.Module):
         return F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
 
 
-def batches(data_dir, split, batch, ctx):
-    raw = np.memmap(os.path.join(data_dir, f"raw_{split}.bin"), dtype=np.uint16, mode="r")
-    sft = np.memmap(os.path.join(data_dir, f"sft_{split}.bin"), dtype=np.uint16, mode="r")
+def batches(data_dir, split, batch, ctx, mix):
+    """Yield (input, target) batches drawn from several datasets by weight.
 
-    def take(arr, n):
-        ix = np.random.randint(0, len(arr) - ctx - 1, n)
-        return np.stack([arr[i : i + ctx + 1] for i in ix]).astype(np.int64)
+    mix maps a dataset name ("raw", "sft", "tasks") to its share of each batch.
+    Chat datasets start each window at a user turn so the model sees whole exchanges.
+    """
+    from tokenizer import USER
+
+    sources = []
+    for name, weight in mix.items():
+        arr = np.memmap(os.path.join(data_dir, f"{name}_{split}.bin"), dtype=np.uint16, mode="r")
+        starts = None if name == "raw" else np.flatnonzero(arr[: len(arr) - ctx - 1] == USER)
+        sources.append((arr, starts, weight))
+    total = sum(w for _, _, w in sources)
 
     while True:
-        half = batch // 2
-        chunk = torch.from_numpy(np.concatenate([take(raw, batch - half), take(sft, half)]))
+        rows = []
+        for k, (arr, starts, w) in enumerate(sources):
+            n = round(batch * w / total) if k < len(sources) - 1 else batch - len(rows)
+            if starts is None:
+                ix = np.random.randint(0, len(arr) - ctx - 1, n)
+            else:
+                ix = starts[np.random.randint(0, len(starts), n)]
+            rows += [arr[i : i + ctx + 1] for i in ix]
+        chunk = torch.from_numpy(np.stack(rows).astype(np.int64))
         yield chunk[:, :-1], chunk[:, 1:]
 
 
 @torch.no_grad()
-def evaluate(model, data_dir, batch, ctx, steps=10):
+def evaluate(model, data_dir, batch, ctx, mix, steps=10):
     model.eval()
-    it = batches(data_dir, "val", batch, ctx)
+    it = batches(data_dir, "val", batch, ctx, mix)
     loss = sum(model(*next(it)).item() for _ in range(steps)) / steps
     model.train()
     return loss
@@ -133,6 +147,9 @@ def main():
     ap.add_argument("--batch", type=int, default=48)
     ap.add_argument("--lr", type=float, default=1.5e-3)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", help="start from these weights (for fine-tuning)")
+    ap.add_argument("--mix", default="raw:1,sft:1", help="dataset shares, e.g. raw:1,sft:1,tasks:2")
+    ap.add_argument("--warmup", type=int, default=100)
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     torch.manual_seed(1337)
@@ -143,6 +160,9 @@ def main():
     ckpt_path = os.path.join(args.out_dir, "ckpt.pt")
     if args.resume and os.path.exists(ckpt_path):
         model.load_state_dict(torch.load(ckpt_path))
+    elif args.init:
+        model.load_state_dict(torch.load(args.init))
+    mix = {k: float(v) for k, v in (part.split(":") for part in args.mix.split(","))}
     print(f"{sum(p.numel() for p in model.parameters()) / 1e6:.2f}M parameters", flush=True)
 
     decay = [p for n, p in model.named_parameters() if p.dim() >= 2]
@@ -153,10 +173,10 @@ def main():
     )
 
     ctx = CONFIG["train_ctx"]
-    it = batches(args.data_dir, "train", args.batch, ctx)
+    it = batches(args.data_dir, "train", args.batch, ctx, mix)
     budget = args.minutes * 60
     start = time.time()
-    step, warmup = 0, 100
+    step, warmup = 0, args.warmup
     while True:
         progress = (time.time() - start) / budget
         if progress >= 1:
@@ -173,11 +193,11 @@ def main():
         if step % 25 == 0:
             print(f"step {step} loss {loss.item():.3f} lr {lr:.2e} {time.time() - start:.0f}s", flush=True)
         if step % 250 == 0 and step > 0:
-            print(f"  val loss {evaluate(model, args.data_dir, args.batch, ctx):.3f}", flush=True)
+            print(f"  val loss {evaluate(model, args.data_dir, args.batch, ctx, mix):.3f}", flush=True)
             torch.save(model.state_dict(), ckpt_path)
         step += 1
 
-    print(f"final val loss {evaluate(model, args.data_dir, args.batch, ctx):.3f} after {step} steps", flush=True)
+    print(f"final val loss {evaluate(model, args.data_dir, args.batch, ctx, mix):.3f} after {step} steps", flush=True)
     torch.save(model.state_dict(), ckpt_path)
     export(model, os.path.join(args.out_dir, "buddo-model.bin"))
     print("exported", flush=True)

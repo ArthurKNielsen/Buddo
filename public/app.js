@@ -3,7 +3,7 @@
 const STORAGE_KEY = "buddo-local-chat";
 const CONTEXT_LIMIT = 20000; // tokens: prompt + chat history + reply
 const MAX_NEW_TOKENS = 384;
-const TEMPERATURE = 0.7;
+const TEMPERATURE = 0.5;
 
 const els = {
   chat: document.getElementById("chat"),

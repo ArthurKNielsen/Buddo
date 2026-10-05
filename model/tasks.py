@@ -249,8 +249,31 @@ CHAT = [
 ]
 
 
-def build_examples(rng, task_reps=12, chat_reps=6):
+def held_out(items):
+    """About 1 in 8 generated programs never appear in training: they are the exam.
+
+    Programs that overlap a hand-written task are always trained on, so the
+    exam only contains things Buddo has truly never seen.
+    """
+    import zlib
+
+    known = {a for asks, _, _ in TASKS for a in asks}
+    return [it for it in items if zlib.crc32(it["code"].encode()) % 8 == 0 and not known & set(it["asks"])]
+
+
+def build_examples(rng, task_reps=12, chat_reps=6, gen_reps=16):
+    from generators import all_items
+
     examples = []
+    items = all_items()
+    exam = {it["code"] for it in held_out(items)}
+    for it in items:
+        if it["code"] in exam:
+            continue
+        for _ in range(gen_reps):
+            t = rng.choice(it["asks"])
+            tmpl = rng.choice(ASK_TEMPLATES)
+            examples.append((tmpl.format(t=t, T=t[0].upper() + t[1:]), it["code"]))
     for asks, code, _ in TASKS:
         for _ in range(task_reps):
             t = rng.choice(asks)
@@ -298,7 +321,8 @@ def write_dataset(data_dir):
     tok = Tokenizer.load(os.path.join(data_dir, "tokenizer.json"))
     for split, seed, reps in (("train", 0, 40), ("val", 1, 2)):
         flat = []
-        for q, a in build_examples(random.Random(seed), task_reps=reps, chat_reps=reps // 2 or 1):
+        gen_reps = 16 if split == "train" else 1
+        for q, a in build_examples(random.Random(seed), task_reps=reps, chat_reps=reps // 2 or 1, gen_reps=gen_reps):
             flat += [USER] + tok.encode(q) + [BOT] + tok.encode(a) + [END]
         np.array(flat, dtype=np.uint16).tofile(os.path.join(data_dir, f"tasks_{split}.bin"))
         print(f"tasks_{split}.bin: {len(flat) / 1e6:.2f}M tokens")

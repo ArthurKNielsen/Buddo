@@ -96,7 +96,7 @@ function setMeter(used) {
   const pct = Math.min(100, (used / CONTEXT_LIMIT) * 100);
   els.meterFill.style.width = `${pct}%`;
   els.meterFill.className = pct > 90 ? "full" : pct > 70 ? "warn" : "";
-  const k = (n) => `${+(n / 1000).toFixed(1)}k`;
+  const k = (n) => (n < 1000 ? String(n) : `${+(n / 1000).toFixed(1)}k`);
   els.meterText.textContent = `${k(used)} / ${k(CONTEXT_LIMIT)}`;
 }
 

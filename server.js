@@ -1,6 +1,8 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -14,6 +16,8 @@ const CONTEXT_LIMIT = Number(process.env.BUDDO_CONTEXT_LIMIT) || 20000;
 // Slice of the window kept free for the reply (thinking counts toward it too).
 const MAX_OUTPUT = Number(process.env.BUDDO_MAX_OUTPUT) || 8000;
 const INPUT_BUDGET = CONTEXT_LIMIT - MAX_OUTPUT;
+// Optional password so strangers can't spend your API credits on a public URL.
+const PASSWORD = process.env.BUDDO_PASSWORD || "";
 
 const SYSTEM_PROMPT = `You are Buddo, a friendly coding buddy who is especially good at Python.
 - When asked for code, write complete, runnable Python 3 in a fenced \`\`\`python block.
@@ -27,6 +31,8 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
 };
 
 async function countTokens(messages) {
@@ -83,7 +89,18 @@ function send(res, event, payload) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+function passwordOk(req) {
+  if (!PASSWORD) return true;
+  const given = Buffer.from(String(req.headers["x-buddo-password"] || ""));
+  const expected = Buffer.from(PASSWORD);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+}
+
 async function handleChat(req, res) {
+  if (!passwordOk(req)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "Wrong password" }));
+  }
   let body;
   try {
     body = JSON.parse(await readBody(req));
@@ -173,7 +190,7 @@ const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/chat") return handleChat(req, res);
   if (req.method === "GET" && req.url === "/api/config") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ model: MODEL, contextLimit: CONTEXT_LIMIT, inputBudget: INPUT_BUDGET }));
+    return res.end(JSON.stringify({ model: MODEL, contextLimit: CONTEXT_LIMIT, inputBudget: INPUT_BUDGET, needsPassword: Boolean(PASSWORD) }));
   }
   if (req.method === "GET") return serveStatic(req, res);
   res.writeHead(405);
@@ -182,6 +199,13 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Buddo is running at http://localhost:${PORT} (context limit ${CONTEXT_LIMIT} tokens)`);
+  // Show LAN addresses so you can open Buddo on your phone over the same Wi-Fi.
+  for (const nets of Object.values(os.networkInterfaces())) {
+    for (const net of nets ?? []) {
+      if (net.family === "IPv4" && !net.internal) console.log(`  On your phone (same Wi-Fi): http://${net.address}:${PORT}`);
+    }
+  }
+  if (!PASSWORD) console.warn("Tip: set BUDDO_PASSWORD before putting Buddo on a public URL.");
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     console.warn("Heads up: ANTHROPIC_API_KEY isn't set, so chats will fail until you add one.");
   }

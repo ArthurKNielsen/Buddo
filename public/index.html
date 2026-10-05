@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#6c4cf1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Buddo" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <title>Buddo</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -30,9 +38,18 @@
   </main>
 
   <form id="composer">
-    <textarea id="input" rows="1" placeholder="Message Buddo…" autofocus></textarea>
+    <textarea id="input" rows="1" placeholder="Message Buddo…" enterkeyhint="send"></textarea>
     <button id="send" type="submit" aria-label="Send">➤</button>
   </form>
+
+  <dialog id="password-dialog">
+    <form method="dialog" id="password-form">
+      <h2>Enter password</h2>
+      <p>This Buddo is locked so only you can use it.</p>
+      <input id="password-input" type="password" autocomplete="current-password" required />
+      <button type="submit">Unlock</button>
+    </form>
+  </dialog>
 
   <script src="/app.js"></script>
 </body>

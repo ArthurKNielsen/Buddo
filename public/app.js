@@ -1,4 +1,5 @@
 const STORAGE_KEY = "buddo-chat";
+const PASSWORD_KEY = "buddo-password";
 
 const els = {
   chat: document.getElementById("chat"),
@@ -10,6 +11,9 @@ const els = {
   newChat: document.getElementById("new-chat"),
   meterFill: document.getElementById("meter-fill"),
   meterText: document.getElementById("meter-text"),
+  passwordDialog: document.getElementById("password-dialog"),
+  passwordForm: document.getElementById("password-form"),
+  passwordInput: document.getElementById("password-input"),
 };
 
 let history = load();
@@ -21,6 +25,7 @@ fetch("/api/config")
   .then((cfg) => {
     contextLimit = cfg.contextLimit;
     setMeter(0);
+    if (cfg.needsPassword && !getPassword()) askPassword();
   })
   .catch(() => {});
 
@@ -118,7 +123,10 @@ function setMeter(used) {
   const pct = Math.min(100, (used / contextLimit) * 100);
   els.meterFill.style.width = `${pct}%`;
   els.meterFill.className = pct > 90 ? "full" : pct > 70 ? "warn" : "";
-  els.meterText.textContent = `${used.toLocaleString()} / ${contextLimit.toLocaleString()} tokens`;
+  const k = (n) => `${+(n / 1000).toFixed(1)}k`;
+  els.meterText.textContent = matchMedia("(max-width: 560px)").matches
+    ? `${k(used)} / ${k(contextLimit)}`
+    : `${used.toLocaleString()} / ${contextLimit.toLocaleString()} tokens`;
 }
 
 function renderAll() {
@@ -144,6 +152,34 @@ function save() {
   } catch {}
 }
 
+function getPassword() {
+  try {
+    return localStorage.getItem(PASSWORD_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+// Resolves once the user submits a password.
+function askPassword() {
+  return new Promise((resolve) => {
+    els.passwordInput.value = "";
+    els.passwordDialog.showModal();
+    els.passwordForm.addEventListener(
+      "submit",
+      () => {
+        try {
+          localStorage.setItem(PASSWORD_KEY, els.passwordInput.value);
+        } catch {}
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+class WrongPassword extends Error {}
+
 // ---------- chat ----------
 
 async function sendMessage(text) {
@@ -160,9 +196,10 @@ async function sendMessage(text) {
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Buddo-Password": getPassword() },
       body: JSON.stringify({ messages: history }),
     });
+    if (res.status === 401) throw new WrongPassword();
     if (!res.ok || !res.body) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `Server returned ${res.status}`);
@@ -212,11 +249,20 @@ async function sendMessage(text) {
     // Roll back the unanswered user turn so history stays user/assistant alternating.
     history.pop();
     bubble.parentElement.remove();
+    if (err instanceof WrongPassword) {
+      els.messages.lastElementChild?.remove(); // the user bubble; it's re-added on retry
+      busy = false;
+      els.send.disabled = false;
+      await askPassword();
+      await sendMessage(text);
+      return;
+    }
     addBubble("error", `⚠️ ${err.message}`);
   } finally {
     busy = false;
     els.send.disabled = false;
-    els.input.focus();
+    // Don't pop the keyboard back open on phones.
+    if (matchMedia("(pointer: fine)").matches) els.input.focus();
   }
 }
 

@@ -116,9 +116,22 @@ def batches(data_dir, split, batch, ctx, mix):
     """Yield (input, target) batches drawn from several datasets by weight.
 
     mix maps a dataset name ("raw", "sft", "tasks") to its share of each batch.
-    Chat datasets start each window at a user turn so the model sees whole exchanges.
+    Chat datasets start each window at a user turn so the model sees whole exchanges,
+    and only Buddo's replies are graded: the user's message is context, not homework.
     """
-    from tokenizer import USER
+    from tokenizer import BOT, USER
+
+    def grade_replies_only(row):
+        target = row[1:].astype(np.int64)
+        in_prompt = row[0] == USER  # windows usually start on a user turn
+        for j, t in enumerate(row[1:]):
+            if t == USER:
+                in_prompt = True
+            if in_prompt:
+                target[j] = -100  # ignored by cross_entropy
+            if t == BOT:
+                in_prompt = False
+        return target
 
     sources = []
     for name, weight in mix.items():
@@ -128,16 +141,18 @@ def batches(data_dir, split, batch, ctx, mix):
     total = sum(w for _, _, w in sources)
 
     while True:
-        rows = []
+        inputs, targets = [], []
         for k, (arr, starts, w) in enumerate(sources):
-            n = round(batch * w / total) if k < len(sources) - 1 else batch - len(rows)
+            n = round(batch * w / total) if k < len(sources) - 1 else batch - len(inputs)
             if starts is None:
                 ix = np.random.randint(0, len(arr) - ctx - 1, n)
             else:
                 ix = starts[np.random.randint(0, len(starts), n)]
-            rows += [arr[i : i + ctx + 1] for i in ix]
-        chunk = torch.from_numpy(np.stack(rows).astype(np.int64))
-        yield chunk[:, :-1], chunk[:, 1:]
+            for i in ix:
+                row = np.asarray(arr[i : i + ctx + 1])
+                inputs.append(row[:-1].astype(np.int64))
+                targets.append(row[1:].astype(np.int64) if starts is None else grade_replies_only(row))
+        yield torch.from_numpy(np.stack(inputs)), torch.from_numpy(np.stack(targets))
 
 
 @torch.no_grad()

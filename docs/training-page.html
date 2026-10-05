@@ -1,0 +1,515 @@
+<title>How Buddo Learns</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a single reading column of numbered stages, with wide figures and code panels breaking out to the column edge. */
+:root {
+  --bg: #f7f6fb;
+  --surface: #ffffff;
+  --ink: #1b1928;
+  --ink-2: #4d4962;
+  --ink-3: #77728c;
+  --rule: #e3e0ee;
+  --accent: #6c4cf1;
+  --accent-soft: #ece7ff;
+  --code-bg: #16141f;
+  --code-ink: #e8e5f4;
+  --code-dim: #8f8aa6;
+  --tok-user: #2a78d6;
+  --tok-bot: #1baf7a;
+  --tok-end: #eb6834;
+  --pass: #1a7f4b;
+  --pass-bg: #e3f4ea;
+  --fail: #b53a2f;
+  --fail-bg: #fbe7e4;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #ebe9f2;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #110f18;
+    --surface: #1a1824;
+    --ink: #eeecf7;
+    --ink-2: #bdb8d0;
+    --ink-3: #8e89a4;
+    --rule: #2c2939;
+    --accent: #9d86ff;
+    --accent-soft: #2a2348;
+    --code-bg: #0b0a10;
+    --tok-user: #3987e5;
+    --tok-bot: #199e70;
+    --tok-end: #d95926;
+    --pass: #5ccf8e;
+    --pass-bg: #163325;
+    --fail: #ff8a7d;
+    --fail-bg: #3a1c19;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --grid: #262333;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #110f18;
+  --surface: #1a1824;
+  --ink: #eeecf7;
+  --ink-2: #bdb8d0;
+  --ink-3: #8e89a4;
+  --rule: #2c2939;
+  --accent: #9d86ff;
+  --accent-soft: #2a2348;
+  --code-bg: #0b0a10;
+  --tok-user: #3987e5;
+  --tok-bot: #199e70;
+  --tok-end: #d95926;
+  --pass: #5ccf8e;
+  --pass-bg: #163325;
+  --fail: #ff8a7d;
+  --fail-bg: #3a1c19;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --grid: #262333;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font-body); margin: 0; }
+.wrap { max-width: 860px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(36px, 7vw, 60px); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(24px, 4vw, 32px); font-weight: 800; }
+h3 { font-size: 18px; font-weight: 600; }
+p { margin: 0; max-width: 66ch; color: var(--ink-2); }
+code, pre, .mono { font-family: var(--font-mono); }
+p code, li code, td code { font-size: 0.88em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+a { color: var(--accent); }
+
+.hero { display: grid; gap: 18px; padding-bottom: 36px; border-bottom: 1px solid var(--rule); }
+.eyebrow { font: 600 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 19px; color: var(--ink-2); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; margin-top: 8px; }
+.fact { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; }
+.fact b { font: 600 24px/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
+.fact span { font-size: 13px; color: var(--ink-3); }
+
+section { display: grid; gap: 16px; padding-block: 44px 8px; }
+.stage { font: 600 13px/1 var(--font-mono); color: var(--ink-3); }
+
+.pipeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: step; }
+.pipeline li { display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--rule); }
+.pipeline li:first-child { border-top: 0; }
+.pipeline li::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 14px var(--font-mono); }
+.pipeline h3 { margin-bottom: 2px; }
+.pipeline p { font-size: 15px; }
+.pipeline .num { font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); }
+
+.panel { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; }
+.panel header { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; font: 12px var(--font-mono); color: var(--code-dim); border-bottom: 1px solid rgba(255,255,255,.07); }
+.panel pre { margin: 0; padding: 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+.stream { padding: 16px 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 13px var(--font-mono); }
+.tok { padding: 3px 7px; border-radius: 5px; background: rgba(255,255,255,.08); white-space: pre; }
+.tok.special { color: #fff; font-weight: 600; }
+.tok.user { background: var(--tok-user); }
+.tok.bot { background: var(--tok-bot); }
+.tok.end { background: var(--tok-end); }
+.legend-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--ink-3); }
+.legend-row i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tabs button { font: 500 14px var(--font-body); padding: 7px 12px; border-radius: 999px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tabs button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabpanel { display: grid; gap: 12px; }
+.pair { display: grid; gap: 0; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.pair .q { padding: 10px 14px; font-size: 14px; display: flex; gap: 10px; align-items: baseline; }
+.pair .q::before { content: "you"; font: 600 11px var(--font-mono); color: var(--tok-user); text-transform: uppercase; letter-spacing: .08em; }
+.pair pre { margin: 0; padding: 12px 14px; background: var(--code-bg); color: var(--code-ink); font-size: 12.5px; overflow-x: auto; }
+.pair .chat-a { padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--ink); }
+.bars { display: grid; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(110px, 160px) 1fr 40px; gap: 10px; align-items: center; font-size: 14px; }
+.bar-row .track { height: 10px; background: var(--grid); border-radius: 0 4px 4px 0; }
+.bar-row .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+.bar-row b { font-variant-numeric: tabular-nums; text-align: right; font-weight: 500; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 12.5px var(--font-mono); padding: 3px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--rule); color: var(--ink-2); }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 14px 10px; display: grid; gap: 8px; }
+figcaption { font-size: 14px; color: var(--ink-3); }
+figure h3 { font-size: 16px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font: 11px var(--font-body); fill: var(--ink-3); }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font: 12px/1.4 var(--font-mono); padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%); }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+tr:last-child td { border-bottom: 0; }
+td.n { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 13px; }
+
+.score { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.score div { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 4px; }
+.score b { font: 800 44px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.score span { color: var(--ink-3); font-size: 14px; }
+.score .after b { color: var(--accent); }
+.exam { display: grid; gap: 6px; }
+details { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+summary { cursor: pointer; padding: 9px 12px; display: flex; gap: 10px; align-items: center; font-size: 14px; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.badge { font: 600 11px var(--font-mono); padding: 2px 7px; border-radius: 999px; flex: none; }
+.badge.pass { color: var(--pass); background: var(--pass-bg); }
+.badge.fail { color: var(--fail); background: var(--fail-bg); }
+details pre { margin: 0 12px 12px; padding: 10px 12px; border-radius: 8px; background: var(--code-bg); color: var(--code-ink); font-size: 12.5px; overflow-x: auto; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.note { font-size: 14px; color: var(--ink-3); }
+.callout { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; display: grid; gap: 6px; }
+ul.plain { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 66ch; }
+footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--ink-3); }
+
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  .bar-row { grid-template-columns: 110px 1fr 34px; font-size: 13px; }
+  .score b { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Buddo · training notes</div>
+    <h1>How Buddo learns</h1>
+    <p class="lede">Buddo is a 3.46-million-parameter language model built from nothing: no Ollama, no Hugging Face, no pretrained weights. This page shows everything that goes into it: the data, the exact text it reads, how training runs, and an exam that runs its code to see what actually works.</p>
+    <div class="facts" id="facts"></div>
+  </header>
+
+  <section>
+    <div class="stage">01 · Pipeline</div>
+    <h2>From source code to your phone</h2>
+    <ol class="pipeline" id="pipeline"></ol>
+  </section>
+
+  <section>
+    <div class="stage">02 · The "system prompt"</div>
+    <h2>Buddo has no system prompt</h2>
+    <p>Big chatbots get a hidden paragraph of instructions before every chat. A model this small can't follow written instructions, so Buddo has none. Its personality and its habits come entirely from its training examples. What it actually reads is one long stream of tokens, with three special markers that say who is talking:</p>
+    <div class="panel">
+      <header><span>exactly what the model sees</span><span id="stream-count"></span></header>
+      <div class="stream" id="stream"></div>
+    </div>
+    <div class="legend-row">
+      <span><i style="background:var(--tok-user)"></i>&lt;|user|&gt; your message starts</span>
+      <span><i style="background:var(--tok-bot)"></i>&lt;|bot|&gt; Buddo's reply starts</span>
+      <span><i style="background:var(--tok-end)"></i>&lt;|end|&gt; reply is finished</span>
+    </div>
+    <p>Each grey chip is one token from Buddo's own tokenizer: 4,096 word pieces learned from Python code (byte-pair encoding). Common chunks like <code> function</code> are one token; rarer words get split, like <code>re</code> + <code>verse</code>. When you send a message, the app builds this stream from the whole chat (up to 20,000 tokens), and Buddo predicts the next token again and again until it produces <code>&lt;|end|&gt;</code>.</p>
+    <div class="callout">
+      <h3>Where its personality comes from</h3>
+      <p>These hand-written replies are mixed into training many times. Buddo learned "who it is" from them.</p>
+    </div>
+    <div class="table-wrap"><table id="chat-table"><thead><tr><th>When you say</th><th>Buddo learned to reply</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="stage">03 · Training data</div>
+    <h2>What Buddo reads</h2>
+    <p>Training happens in two phases. <b>Pretraining</b> teaches Python itself by reading lots of real code. <b>Fine-tuning</b> teaches the back-and-forth: a request goes in, working code comes out.</p>
+    <div class="tabs" role="tablist" id="data-tabs"></div>
+    <div id="data-panels"></div>
+  </section>
+
+  <section>
+    <div class="stage">04 · Training runs</div>
+    <h2>Watching it learn</h2>
+    <p><b>Loss</b> measures how surprised the model is by the next token: lower means better predictions. Every step, the model reads a batch of 48 snippets of 256 tokens, measures its loss, and nudges all 3.46M numbers slightly to do better (backpropagation with the AdamW optimizer). <b>Validation loss</b> is measured on text it never trains on, so it shows real learning rather than memorization.</p>
+    <figure>
+      <h3>Phase 1 · Pretraining on Python code</h3>
+      <div class="chart" id="chart-pre"></div>
+      <figcaption id="cap-pre"></figcaption>
+    </figure>
+    <figure>
+      <h3>Phase 2 · Fine-tuning on requests and answers</h3>
+      <div class="chart" id="chart-ft"></div>
+      <figcaption id="cap-ft"></figcaption>
+    </figure>
+    <div class="table-wrap"><table id="hyper"><thead><tr><th>Setting</th><th>Value</th><th>What it means</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="stage">05 · The exam</div>
+    <h2>Does the code actually work?</h2>
+    <p>Before training, 1 in 8 of the generated programs were locked away. Buddo never sees them. For the exam, Buddo gets each one as a request, its answer runs in a sandbox, and it passes only if the code works on real test inputs.</p>
+    <div class="score" id="score"></div>
+    <div class="filters tabs" id="exam-filter"></div>
+    <div class="exam" id="exam"></div>
+  </section>
+
+  <section>
+    <div class="stage">06 · The ceiling</div>
+    <h2>Why it can't be 1000× smarter (yet)</h2>
+    <p>A model's smarts mostly scale with the compute spent training it. Buddo trained on 4 CPU cores. Here's how that compares to GPT-3, the model behind the first ChatGPT. The scale is logarithmic: every gridline is 10× more.</p>
+    <figure>
+      <h3>Total training compute (floating-point operations)</h3>
+      <div class="chart" id="chart-compute"></div>
+      <figcaption id="cap-compute"></figcaption>
+    </figure>
+    <p>That's why Buddo gets better through <i>better data</i> (verified, varied tasks) instead of size. To make a real jump, these are the levers, in order of impact:</p>
+    <ul class="plain">
+      <li><b>A GPU.</b> Even a free cloud GPU trains about 50–100× faster than these 4 cores, which buys a ~10× bigger model trained on far more code.</li>
+      <li><b>More verified tasks.</b> Every new generator family in <code>model/generators.py</code> teaches a new pattern, and the exam score tells us if it worked.</li>
+      <li><b>Longer pretraining.</b> Buddo has read each line of code about once; a few more passes keep lowering the loss.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="stage">07 · Do it yourself</div>
+    <h2>Train your own Buddo</h2>
+    <div class="panel"><header><span>terminal</span><span>model/</span></header><pre id="cmds"></pre></div>
+  </section>
+
+  <footer>Every number on this page comes from Buddo's real training logs and data files. Code: <code>buddo-from-scratch</code> branch of ArthurKNielsen/Buddo.</footer>
+</div>
+
+<script id="report-data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("report-data").textContent);
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const fmt = (n) => n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n);
+
+const ftSteps = D.curves.ft2.val.length ? D.curves.ft2.val.at(-1)[0] : (D.curves.ft2.train.at(-1)?.[0] || 0);
+const seen = (steps) => steps * 48 * 256;
+const preSteps = D.curves.pretrain.val.at(-1)[0];
+const ft1Steps = D.curves.ft1.val.at(-1)[0];
+const totalTokensSeen = seen(preSteps) + seen(ft1Steps) + seen(ftSteps);
+const v1 = D.evals.v1, v2 = D.evals.v2;
+
+// ---------- facts ----------
+[
+  ["3.46M", "parameters (numbers it learns)"],
+  [fmt(D.tokens.raw), "tokens of Python code read"],
+  [`${Math.round((D.curves.pretrain.train.at(-1)[2] + (D.curves.ft2.train.at(-1)?.[2] || 0)) / 60)} min`, "of training on 4 CPU cores"],
+  v2 ? [`${v1.passed} → ${v2.passed}`, `of ${v2.total} never-seen programs correct`] : ["…", "exam running"],
+].forEach(([b, s]) => { const f = el("div", "fact"); f.append(el("b", null, b), el("span", null, s)); $("facts").append(f); });
+
+// ---------- pipeline ----------
+const fam = D.families.reduce((a, f) => a + f.count, 0);
+[
+  ["Collect Python code", `About 70 MB of open-source Python (the standard library plus packages like NumPy) is gathered and cleaned. From functions that have a docstring, ${fmt(D.tokens.sft)} tokens of "description → function" pairs are extracted.`],
+  ["Build a tokenizer", `A byte-pair-encoding tokenizer learns the ${D.vocab.toLocaleString()} most useful chunks of text. Written from scratch in model/tokenizer.py, with an identical JavaScript copy for the phone.`],
+  ["Pretrain", `The transformer (6 layers, 6 attention heads, 192-wide) reads code and learns to predict the next token. ${preSteps.toLocaleString()} steps, about 90 minutes.`],
+  ["Fine-tune", `It keeps training on requests paired with correct answers: ${D.hand_tasks} hand-written tasks, ${fam} generated programs and chat replies, each request phrased many ways. Every answer is executed and checked first.`],
+  ["Take the exam", `Programs it never saw are requested, and its answers are run in a sandbox to see if they work.`],
+  ["Ship to the phone", `The weights are saved as 16-bit numbers (6.9 MB) and run by a hand-written JavaScript engine right in your browser. No server.`],
+].forEach(([h, p]) => { const li = el("li"); const d = el("div"); d.append(el("h3", null, h), el("p", null, p)); li.append(d); $("pipeline").append(li); });
+
+// ---------- token stream ----------
+const exampleAnswer = (D.task_samples.find((t) => t.a.includes("reverse")) || { a: 'def reverse_string(s):\n    return s[::-1]' }).a;
+const streamTokens = [["<|user|>", "user"], ...D.tok_demo.pieces.map((p) => [p, ""]), ["<|bot|>", "bot"], ["def reverse_string(s):⏎    return s[::-1] …", ""], ["<|end|>", "end"]];
+streamTokens.forEach(([t, k]) => $("stream").append(el("span", `tok ${k ? "special " + k : ""}`, t)));
+$("stream-count").textContent = `${D.tok_demo.ids.length} tokens for your message`;
+
+D.chat.forEach((c) => { const tr = el("tr"); tr.append(el("td", null, c.q), el("td", null, c.a)); $("chat-table").tBodies[0].append(tr); });
+
+// ---------- data tabs ----------
+const tabs = [
+  ["Real code", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `Pretraining reads ${fmt(D.tokens.raw)} tokens of files like this one. Buddo learns syntax, naming and idioms just by predicting each next token.`));
+    const panel = el("div", "panel"); const h = el("header"); h.append(el("span", null, "a slice of the pretraining data"), el("span", null, "verbatim"));
+    panel.append(h, Object.assign(el("pre"), { textContent: D.raw_sample.trim() }));
+    p.append(panel); return p;
+  }],
+  ["Library pairs", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `${fmt(D.tokens.sft)} tokens of pairs extracted automatically from documented library functions. Great for learning how descriptions map to code, but they're about libraries, not everyday asks, which is why the first Buddo answered "hi" with library code.`));
+    D.lib_pairs.forEach((x) => p.append(pairEl(x.q, x.a, true)));
+    return p;
+  }],
+  ["Everyday tasks", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `${D.hand_tasks} hand-written tasks plus ${fam} generated programs, each asked through ${D.templates.length} different phrasings. A sample, exactly as stored:`));
+    D.task_samples.slice(0, 6).forEach((x) => p.append(pairEl(x.q, x.a, true)));
+    const chips = el("div", "chips"); D.templates.forEach((t) => chips.append(el("span", "chip", t.replace("{t}", "…").replace("{T}", "…"))));
+    p.append(el("h3", null, "Phrasing templates"), chips);
+    return p;
+  }],
+  ["Generators", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, "Generators combine building blocks (an operation, a condition, a sort key, a number) into many distinct programs, so Buddo learns patterns instead of memorizing. Every program is run against an independent reference answer before it can be used."));
+    const bars = el("div", "bars"); const max = Math.max(...D.families.map((f) => f.count));
+    D.families.forEach((f) => {
+      const r = el("div", "bar-row"); const tr = el("div", "track"); const fi = el("div", "fill"); fi.style.width = `${(f.count / max) * 100}%`; tr.append(fi);
+      r.append(el("span", null, f.name.replace(/_/g, " ")), tr, el("b", null, f.count)); bars.append(r);
+    });
+    p.append(bars); return p;
+  }],
+  ["Chat", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, "Non-code messages teach Buddo when to talk instead of writing code, and to admit what it doesn't know."));
+    D.chat.slice(0, 6).forEach((c) => p.append(pairEl(c.q, c.a, false)));
+    return p;
+  }],
+];
+function pairEl(q, a, code) {
+  const d = el("div", "pair"); d.append(el("div", "q", q));
+  d.append(code ? Object.assign(el("pre"), { textContent: a }) : el("div", "chat-a", a)); return d;
+}
+tabs.forEach(([name, build], i) => {
+  const b = el("button", null, name); b.type = "button"; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", i === 0);
+  const panel = build(); panel.hidden = i !== 0; $("data-panels").append(panel);
+  b.onclick = () => { [...$("data-tabs").children].forEach((x, j) => x.setAttribute("aria-selected", j === i)); [...$("data-panels").children].forEach((x, j) => (x.hidden = j !== i)); };
+  $("data-tabs").append(b);
+});
+
+// ---------- line charts ----------
+function lineChart(host, series, { xLabel, yMin = null }) {
+  series = series.filter((s) => s.points.length);
+  const W = 760, H = 280, m = { l: 40, r: 70, t: 12, b: 34 };
+  const all = series.flatMap((s) => s.points);
+  const xMax = Math.max(...all.map((p) => p[0]));
+  const yLo = yMin ?? Math.floor(Math.min(...all.map((p) => p[1])));
+  const yHi = Math.ceil(Math.max(...all.map((p) => p[1])));
+  const x = (v) => m.l + (v / xMax) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - yLo) / (yHi - yLo)) * (H - m.t - m.b);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("role", "img");
+  const add = (tag, attrs, text) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.append(e); return e; };
+  for (let v = yLo; v <= yHi; v += (yHi - yLo) > 6 ? 2 : 1) {
+    add("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: "var(--grid)" });
+    add("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, v);
+  }
+  const raw = xMax / 5, mag = 10 ** Math.floor(Math.log10(raw));
+  const stepX = [1, 2, 5, 10].map((k) => k * mag).find((k) => k >= raw);
+  for (let v = 0; v <= xMax; v += stepX) {
+    add("text", { x: x(v), y: H - m.b + 18, "text-anchor": "middle" }, v.toLocaleString());
+  }
+  add("text", { x: (W - m.r + m.l) / 2, y: H - 2, "text-anchor": "middle" }, xLabel);
+  series.forEach((s) => {
+    if (s.dots) {
+      s.points.forEach((p) => add("circle", { cx: x(p[0]), cy: y(p[1]), r: 4.5, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }));
+    } else {
+      add("path", { d: s.points.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(""), fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round" });
+    }
+    const last = s.points.at(-1);
+    add("text", { x: x(last[0]) + 8, y: y(last[1]) + (s.labelDy || 4), style: "fill: var(--ink-2); font-weight: 600" }, `${s.name} ${last[1].toFixed(2)}`);
+  });
+  // hover: crosshair + nearest values
+  const cross = add("line", { y1: m.t, y2: H - m.b, stroke: "var(--ink-3)", "stroke-dasharray": "3 3", opacity: 0 });
+  const overlay = add("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  const tip = el("div", "tip"); tip.hidden = true; host.append(svg, tip);
+  overlay.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect(); const sx = ((e.clientX - r.left) / r.width) * W;
+    const step = Math.max(0, Math.min(xMax, ((sx - m.l) / (W - m.l - m.r)) * xMax));
+    const lines = series.map((s) => { const p = s.points.reduce((a, b) => Math.abs(b[0] - step) < Math.abs(a[0] - step) ? b : a); return `${s.name}: ${p[1].toFixed(3)} @ step ${p[0]}`; });
+    cross.setAttribute("x1", x(step)); cross.setAttribute("x2", x(step)); cross.setAttribute("opacity", 1);
+    tip.hidden = false; tip.textContent = lines.join("  ·  ");
+    tip.style.left = `${Math.min(Math.max((x(step) / W) * r.width, 120), r.width - 120)}px`; tip.style.top = `${(m.t / H) * r.height + 8}px`;
+  });
+  overlay.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("opacity", 0); });
+}
+
+const pre = D.curves.pretrain;
+lineChart($("chart-pre"), [
+  { name: "train", color: "var(--series-1)", points: pre.train.map((p) => [p[0], p[1]]), labelDy: -6 },
+  { name: "validation", color: "var(--series-2)", points: pre.val, dots: true, labelDy: 14 },
+], { xLabel: "training step (48 snippets × 256 tokens each)", yMin: 1 });
+$("cap-pre").textContent = `Loss fell from ${pre.train[0][1].toFixed(1)} (random guessing among ${D.vocab.toLocaleString()} tokens) to ${pre.val.at(-1)[1].toFixed(2)} on unseen code, over ${preSteps.toLocaleString()} steps.`;
+
+const ft = D.curves.ft2;
+if (ft.train.length) {
+  lineChart($("chart-ft"), [
+    { name: "train", color: "var(--series-1)", points: ft.train.map((p) => [p[0], p[1]]), labelDy: -6 },
+    { name: "validation", color: "var(--series-2)", points: ft.val, dots: true, labelDy: 14 },
+  ], { xLabel: "fine-tuning step", yMin: 0 });
+  $("cap-ft").textContent = `Starts from the pretrained model. Each batch mixes real code, library pairs and everyday tasks (1 : 1 : 3) so it learns the new skill without forgetting Python. Validation loss ended at ${ft.val.at(-1)?.[1].toFixed(2)}.`;
+}
+
+[
+  ["Layers", "6", "Stacked transformer blocks; each refines its understanding of the text so far"],
+  ["Width", "192", "Numbers used to represent each token inside the model"],
+  ["Attention heads", "6", "Separate ways each layer looks back at earlier tokens"],
+  ["Positions", "ALiBi", "A distance penalty in attention, which lets it read 20,000-token chats despite training on 256"],
+  ["Vocabulary", D.vocab.toLocaleString(), "Word pieces in the tokenizer"],
+  ["Batch", "48 × 256 tokens", "How much text it reads per step"],
+  ["Learning rate", "1.5e-3 → 1.5e-4", "Step size, warming up then decaying on a cosine curve (5e-4 for fine-tuning)"],
+  ["Optimizer", "AdamW, weight decay 0.1", "The update rule; decay keeps the numbers small to avoid memorizing"],
+  ["Precision", "float32 train, float16 ship", "Weights are halved in size for the phone with no visible change"],
+].forEach((r) => { const tr = el("tr"); r.forEach((c, i) => tr.append(el("td", i === 1 ? "n" : null, c))); $("hyper").tBodies[0].append(tr); });
+
+// ---------- exam ----------
+if (v2) {
+  [["before", v1, "Buddo v1 (63 memorized tasks)"], ["after", v2, "Buddo v2 (with generated tasks)"]].forEach(([cls, r, label]) => {
+    const d = el("div", cls); d.append(el("b", null, `${Math.round((r.passed / r.total) * 100)}%`), el("span", null, `${label}: ${r.passed} of ${r.total} programs work`)); $("score").append(d);
+  });
+  const filters = ["All", "Passed", "Failed"]; let current = "All";
+  const render = () => {
+    $("exam").innerHTML = "";
+    v2.log.forEach((q) => {
+      if ((current === "Passed" && !q.pass) || (current === "Failed" && q.pass)) return;
+      const d = el("details"); const s = el("summary");
+      s.append(el("span", `badge ${q.pass ? "pass" : "fail"}`, q.pass ? "PASS" : "FAIL"), el("span", null, q.prompt.replace("write a python function to ", "")));
+      d.append(s, Object.assign(el("pre"), { textContent: q.answer || "(no answer)" })); $("exam").append(d);
+    });
+  };
+  filters.forEach((f) => {
+    const b = el("button", null, f); b.type = "button"; b.setAttribute("aria-selected", f === current);
+    b.onclick = () => { current = f; [...$("exam-filter").children].forEach((x) => x.setAttribute("aria-selected", x.textContent === f)); render(); };
+    $("exam-filter").append(b);
+  });
+  render();
+} else {
+  $("score").append(el("p", "note", "The exam is still running."));
+}
+
+// ---------- compute (log scale) ----------
+(() => {
+  const buddo = 6 * 3.46e6 * totalTokensSeen;
+  const rows = [["Buddo", buddo], ["Buddo × 1,000", buddo * 1000], ["GPT-3 (2020)", 3.14e23]];
+  const W = 760, rowH = 46, m = { l: 120, r: 90, t: 8, b: 30 }, H = m.t + rows.length * rowH + m.b;
+  const lo = 14, hi = 24;
+  const x = (v) => m.l + ((Math.log10(v) - lo) / (hi - lo)) * (W - m.l - m.r);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("role", "img");
+  const add = (tag, a, t) => { const e = document.createElementNS(ns, tag); for (const k in a) e.setAttribute(k, a[k]); if (t != null) e.textContent = t; svg.append(e); return e; };
+  for (let p = lo; p <= hi; p += 2) {
+    add("line", { x1: x(10 ** p), x2: x(10 ** p), y1: m.t, y2: H - m.b, stroke: "var(--grid)" });
+    add("text", { x: x(10 ** p), y: H - 10, "text-anchor": "middle" }, `10^${p}`);
+  }
+  rows.forEach(([name, v], i) => {
+    const yy = m.t + i * rowH + 10;
+    add("text", { x: m.l - 10, y: yy + 17, "text-anchor": "end", style: "fill: var(--ink-2); font-size: 12px" }, name);
+    add("rect", { x: m.l, y: yy, width: Math.max(4, x(v) - m.l), height: 24, rx: 4, fill: i === 2 ? "var(--ink-3)" : "var(--series-1)" });
+    add("text", { x: x(v) + 8, y: yy + 17, style: "fill: var(--ink-2)" }, v.toExponential(1).replace("e+", " × 10^"));
+  });
+  $("chart-compute").append(svg);
+  $("cap-compute").textContent = `Buddo used about ${buddo.toExponential(1).replace("e+", " × 10^")} operations (6 × parameters × tokens trained on). GPT-3 used about ${Math.round(3.14e23 / buddo / 1e6)} million times more. Even 1,000× Buddo is still far below it.`;
+})();
+
+$("cmds").textContent = [
+  "# 1. collect code, train the tokenizer, build datasets",
+  "python prepare.py data /usr/lib/python3.12 /path/to/site-packages",
+  "",
+  "# 2. check every hand-written and generated task actually works",
+  "python tasks.py --check && python generators.py",
+  "python tasks.py data",
+  "",
+  "# 3. pretrain on code (about 90 min on 4 CPU cores)",
+  "python train.py data out --minutes 90",
+  "",
+  "# 4. fine-tune on requests and answers",
+  "python train.py data ft --init out/ckpt.pt --mix raw:1,sft:1,tasks:3 --minutes 40 --lr 5e-4 --warmup 20",
+  "",
+  "# 5. take the exam, then chat with it",
+  "python eval.py data ft/ckpt.pt",
+  'python sample.py data ft/ckpt.pt "hi" "sort a list of words by length"',
+  "",
+  "# 6. ship it to the phone app",
+  "cp data/tokenizer.json ft/buddo-model.bin ../public/",
+].join("\n");
+</script>

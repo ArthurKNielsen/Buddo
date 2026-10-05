@@ -71,11 +71,12 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install numpy
 # more Python code for Buddo to read (bigger models need more data):
 pip install django sympy pandas scikit-learn matplotlib flask requests rich
-python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 30
+python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 10
 ```
 
 - **Laptop 3060 (6 GB)** or a `CUDA out of memory` error: add `--batch 24`.
 - **Medium beats large on a 3060.** A 50M-parameter model needs far more code than your PC has to read, so it mostly memorizes. Medium (16M) is the sweet spot.
+- **Keep fine-tuning short on a GPU.** The task set is small, and a GPU loops over it fast. Much past 10 minutes it starts memorizing instead of learning patterns, which can lower the exam score. To try another fine-tune length, delete `work/finetuned` and rerun; pretraining is skipped.
 - **Starting over:** delete the `work` folder. To redo only training, delete `work/pretrained` and `work/finetuned`.
 
 ## 4. Chat with your model

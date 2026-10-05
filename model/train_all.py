@@ -1,7 +1,7 @@
 """Train Buddo start to finish with one command, on any computer.
 
     python train_all.py                          # small model, ~2.5 hours on a CPU
-    python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 30   # with a GPU
+    python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 10   # with a GPU
 
 Steps: collect Python code -> tokenizer + datasets -> pretrain -> fine-tune ->
 exam -> copy the model into ../public so the app uses it.

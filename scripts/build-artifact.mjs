@@ -13,13 +13,17 @@ const html = fs.readFileSync(path.join(pub, "index.html"), "utf8");
 const title = html.match(/<title>(.*?)<\/title>/)[1];
 const page = html.split("<!-- page:start -->")[1].split("<!-- page:end -->")[0];
 const css = fs.readFileSync(path.join(pub, "style.css"), "utf8");
-const js = fs.readFileSync(path.join(pub, "app.js"), "utf8");
+// Artifacts don't serve .bin files, so the weights ship as base64 text.
+const js = fs
+  .readFileSync(path.join(pub, "app.js"), "utf8")
+  .replace('modelUrl: "buddo-model.bin"', 'modelUrl: "buddo-model.txt"');
 
 fs.writeFileSync(
   path.join(out, "index.html"),
   `<title>${title}</title>\n<style>\n${css}</style>\n${page}\n<script>\n${js}</script>\n`,
 );
-for (const f of ["worker.js", "tokenizer.json", "buddo-model.bin"]) {
+for (const f of ["worker.js", "tokenizer.json"]) {
   fs.copyFileSync(path.join(pub, f), path.join(out, f));
 }
+fs.writeFileSync(path.join(out, "buddo-model.txt"), fs.readFileSync(path.join(pub, "buddo-model.bin")).toString("base64"));
 console.log(`Built ${out}`);

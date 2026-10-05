@@ -340,7 +340,15 @@ onmessage = async (e) => {
       const [tokRes, modelRes] = await Promise.all([fetch(msg.tokenizerUrl), fetch(msg.modelUrl)]);
       if (!tokRes.ok || !modelRes.ok) throw new Error("Couldn't download the model files");
       loadTokenizer(await tokRes.json());
-      loadModel(await modelRes.arrayBuffer());
+      // Some hosts only serve text, so the weights may arrive base64-encoded.
+      if (msg.modelUrl.endsWith(".txt")) {
+        const bin = atob((await modelRes.text()).trim());
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        loadModel(bytes.buffer);
+      } else {
+        loadModel(await modelRes.arrayBuffer());
+      }
       postMessage({ type: "ready", config: cfg });
     } else if (msg.type === "generate") {
       await generate(msg);

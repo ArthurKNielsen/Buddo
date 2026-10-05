@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#6c4cf1" />
+  <meta name="description" content="Buddo Agent: a free coding agent that runs entirely in your browser." />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>Buddo Agent</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">B</span><span class="brand-name">Buddo Agent</span></div>
+    <div class="project">
+      <select id="project-select" aria-label="Project"></select>
+      <button id="project-menu-btn" class="icon-btn" type="button" aria-label="Project options" aria-haspopup="menu">⋯</button>
+      <div id="project-menu" class="menu" role="menu" hidden>
+        <button type="button" role="menuitem" data-action="new">New project</button>
+        <button type="button" role="menuitem" data-action="rename">Rename</button>
+        <button type="button" role="menuitem" data-action="download">Download as .zip</button>
+        <button type="button" role="menuitem" data-action="delete" class="danger">Delete project</button>
+      </div>
+    </div>
+    <button id="model-btn" class="model-btn" type="button"><span class="dot" id="model-dot"></span><span id="model-label">Pick a model</span></button>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
+    <button type="button" role="tab" data-tab="preview" aria-selected="false">Preview</button>
+    <button type="button" role="tab" data-tab="files" aria-selected="false">Files</button>
+  </nav>
+
+  <main class="layout" id="layout" data-tab="chat">
+    <section class="pane chat-pane" aria-label="Chat">
+      <div class="messages" id="messages"></div>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Build or change something…" enterkeyhint="send"></textarea>
+        <button id="send" type="submit" class="send" aria-label="Send">➤</button>
+        <button id="stop" type="button" class="send stop" aria-label="Stop" hidden>■</button>
+      </form>
+    </section>
+
+    <section class="pane side-pane">
+      <div class="side-tabs" role="tablist">
+        <button type="button" role="tab" data-side="preview" aria-selected="true">Preview</button>
+        <button type="button" role="tab" data-side="files" aria-selected="false">Files</button>
+      </div>
+      <div class="side preview" data-side-panel="preview">
+        <div class="bar">
+          <select id="page-select" aria-label="Page to preview"></select>
+          <button id="reload-preview" type="button" class="icon-btn" aria-label="Reload preview">↻</button>
+        </div>
+        <iframe id="preview-frame" title="Website preview" sandbox="allow-scripts allow-modals allow-forms allow-popups"></iframe>
+      </div>
+      <div class="side files" data-side-panel="files" hidden>
+        <ul id="file-list" class="file-list"></ul>
+        <div class="file-view">
+          <div class="bar"><span id="file-name">No file selected</span><span id="file-meta" class="muted"></span></div>
+          <pre id="file-code" class="code"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="model-dialog" class="sheet">
+    <form method="dialog" class="sheet-body">
+      <h2>Pick Buddo's brain</h2>
+      <p class="muted" id="device-note"></p>
+      <div id="model-list" class="model-list" role="radiogroup" aria-label="Model"></div>
+      <p class="muted small">Models run on your device's graphics chip. They download once and stay saved in your browser, so after that Buddo opens instantly, even offline. Free forever.</p>
+      <div class="sheet-actions">
+        <button value="cancel" class="ghost" type="submit">Close</button>
+        <button id="load-model" type="button" class="primary">Load</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

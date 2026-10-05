@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Buddo</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">B</span> Buddo</div>
+    <div class="meter" title="Tokens used in the context window">
+      <div class="meter-bar"><div id="meter-fill"></div></div>
+      <span id="meter-text">0 / 20,000 tokens</span>
+    </div>
+    <button id="new-chat" class="ghost">New chat</button>
+  </header>
+
+  <main id="chat">
+    <section id="empty" class="empty">
+      <h1>Hey, I'm Buddo 👋</h1>
+      <p>Ask me to write some Python and I'll cook it up.</p>
+      <div class="suggestions">
+        <button>Write a Python script that renames every file in a folder to lowercase</button>
+        <button>Make a simple number guessing game in Python</button>
+        <button>Explain list comprehensions with examples</button>
+      </div>
+    </section>
+    <div id="messages"></div>
+  </main>
+
+  <form id="composer">
+    <textarea id="input" rows="1" placeholder="Message Buddo…" autofocus></textarea>
+    <button id="send" type="submit" aria-label="Send">➤</button>
+  </form>
+
+  <script src="/app.js"></script>
+</body>
+</html>

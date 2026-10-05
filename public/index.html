@@ -7,50 +7,47 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Buddo" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <title>Buddo</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<!-- page:start -->
   <header class="top">
     <div class="brand"><span class="logo">B</span> Buddo</div>
-    <div class="meter" title="Tokens used in the context window">
+    <div class="meter" title="Tokens used in the 20,000-token context window">
       <div class="meter-bar"><div id="meter-fill"></div></div>
-      <span id="meter-text">0 / 20,000 tokens</span>
+      <span id="meter-text">0 / 20k</span>
     </div>
-    <button id="new-chat" class="ghost">New chat</button>
+    <button id="new-chat" class="ghost" type="button">New chat</button>
   </header>
 
   <main id="chat">
-    <section id="empty" class="empty">
+    <section id="loading" class="loading">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loading-text">Loading Buddo's brain…</p>
+    </section>
+    <section id="empty" class="empty" hidden>
       <h1>Hey, I'm Buddo 👋</h1>
-      <p>Ask me to write some Python and I'll cook it up.</p>
+      <p>A tiny AI I built from scratch. I run right on your phone, no internet needed once I'm loaded. Describe a Python function and I'll try to write it.</p>
       <div class="suggestions">
-        <button>Write a Python script that renames every file in a folder to lowercase</button>
-        <button>Make a simple number guessing game in Python</button>
-        <button>Explain list comprehensions with examples</button>
+        <button type="button">write a python function to reverse a string</button>
+        <button type="button">Return the sum of the squares of a list of numbers.</button>
+        <button type="button">Write a Python function that does this: Read a JSON file and return its contents.</button>
       </div>
+      <p class="fine">Heads up: I'm only 3.5M parameters (ChatGPT-size models are ~100,000× bigger), so my code often won't run. I'm a learning project.</p>
     </section>
     <div id="messages"></div>
   </main>
 
   <form id="composer">
-    <textarea id="input" rows="1" placeholder="Message Buddo…" enterkeyhint="send"></textarea>
-    <button id="send" type="submit" aria-label="Send">➤</button>
+    <textarea id="input" rows="1" placeholder="Describe a Python function…" enterkeyhint="send" disabled></textarea>
+    <button id="send" type="submit" aria-label="Send" disabled>➤</button>
+    <button id="stop" type="button" aria-label="Stop" hidden>■</button>
   </form>
-
-  <dialog id="password-dialog">
-    <form method="dialog" id="password-form">
-      <h2>Enter password</h2>
-      <p>This Buddo is locked so only you can use it.</p>
-      <input id="password-input" type="password" autocomplete="current-password" required />
-      <button type="submit">Unlock</button>
-    </form>
-  </dialog>
-
-  <script src="/app.js"></script>
+<!-- page:end -->
+  <script src="app.js"></script>
 </body>
 </html>

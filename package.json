@@ -1,17 +1,14 @@
 {
   "name": "buddo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Buddo — a from-scratch AI chat website that writes Python",
+  "description": "Buddo: a tiny Python-writing AI built from scratch that runs in your browser",
   "type": "module",
-  "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:artifact": "node scripts/build-artifact.mjs"
   },
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0"
   }
 }

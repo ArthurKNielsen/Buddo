@@ -1,47 +1,52 @@
 # Buddo (from scratch)
 
-A brand-new chat website, built from zero. It doesn't use Ollama, Hugging Face, or transformers. The site, server, chat UI, and markdown renderer are all hand-written. The "brain" is Claude (`claude-opus-5-5`), called through the official Anthropic SDK, so it can actually write Python.
+Buddo is a tiny AI that writes Python, built completely from scratch. It doesn't use Ollama, Hugging Face, `transformers`, or any pretrained model.
 
-## Features
+- **The model** is a small GPT-style transformer (3.5M parameters) written by hand in `model/train.py`. It was trained on Python source code: the standard library plus open-source packages.
+- **The tokenizer** is a byte-level BPE tokenizer written by hand in `model/tokenizer.py`.
+- **On your phone**, the model runs locally in the browser with a hand-written JavaScript engine (`public/worker.js`) that uses zero libraries. Once it's loaded, chatting needs no internet, no server, and no API key, and it's free.
+- **20,000-token context window.** Buddo uses ALiBi attention, so it can read prompts much longer than it was trained on. When a chat grows past 20k tokens, the oldest messages are dropped.
 
-- Streaming replies in a clean chat UI (light and dark mode)
-- Tuned for Python: code comes back in fenced blocks with a **Copy** button
-- **20,000-token context limit.** Every request is measured with Claude's token counter. 8,000 tokens are kept free for the reply. When the chat gets too long, the oldest exchanges are dropped and the UI tells you.
-- A live token meter in the header
-- Chat history is saved in your browser
-- **Phone-ready:** mobile layout, notch/safe-area support, and Add to Home Screen so it opens like an app
-- Optional password (`BUDDO_PASSWORD`) so nobody else can spend your API credits
+## How smart is it?
 
-## Run it
+Expectations: Buddo is about 100,000× smaller than models like ChatGPT and was trained for about 90 minutes on a laptop-class CPU. It writes Python that *looks* right, with real syntax, idioms, and function shapes, but the logic is often wrong and it can't really hold a conversation. It works best when you describe one function, docstring style, for example:
+
+> Return the sum of the squares of a list of numbers.
+
+Bigger models, more data, and longer training make it better. Everything you need to retrain is in `model/`.
+
+## Use it
+
+**On your phone:** open the hosted link and tap Share → *Add to Home Screen*.
+
+**On your computer:**
 
 ```bash
-npm install
-export ANTHROPIC_API_KEY=sk-ant-...   # get one at https://console.anthropic.com
 npm start
 ```
 
-Then open http://localhost:3000.
+Then open http://localhost:3000. Phones on the same Wi-Fi can use the `On your phone` link it prints.
 
-## Use it on your phone
+You can host the `public/` folder on any static web host. There's nothing to run server-side.
 
-**Option A: same Wi-Fi (quickest).** Run `npm start` on your computer. It prints an `On your phone` link like `http://192.168.1.20:3000`. Open that link on your phone. It only works while your computer is on.
+## Retrain the model
 
-**Option B: host it online (works anywhere).**
-1. Make an account at [render.com](https://render.com) (the free plan works).
-2. Click **New → Blueprint** and pick this repo. It reads `render.yaml` and deploys the `buddo-from-scratch` branch.
-3. When it asks, paste your `ANTHROPIC_API_KEY` and choose a `BUDDO_PASSWORD`.
-4. Open your `https://buddo-xxxx.onrender.com` link on your phone and enter the password.
+Needs Python 3 with `torch` and `numpy` (PyTorch is only used for training math; the model code is ours).
 
-On the free plan, the server falls asleep after about 15 minutes with no use, so the first message after that can take up to a minute.
+```bash
+cd model
+python prepare.py data /usr/lib/python3.12 /path/to/more/python/code   # tokenizer + datasets
+python train.py data out --minutes 90                                   # train on CPU
+cp data/tokenizer.json out/buddo-model.bin ../public/
+```
 
-**Add to Home Screen:** in Safari tap Share → *Add to Home Screen*. In Chrome tap ⋮ → *Add to Home screen*. Buddo then opens full-screen like an app.
+## Files
 
-## Settings (env vars)
-
-| Variable | Default | What it does |
-|---|---|---|
-| `BUDDO_CONTEXT_LIMIT` | `20000` | Total token window (prompt + history + reply) |
-| `BUDDO_MAX_OUTPUT` | `8000` | Part of the window kept free for the reply |
-| `BUDDO_MODEL` | `claude-opus-5-5` | Which Claude model to use |
-| `BUDDO_PASSWORD` | *(none)* | Password needed to chat. Set this whenever the site is public |
-| `PORT` | `3000` | Server port |
+| Path | What it is |
+|---|---|
+| `model/tokenizer.py` | BPE tokenizer: training, encoding, decoding |
+| `model/prepare.py` | Collects code, extracts "description → function" pairs, builds datasets |
+| `model/train.py` | The transformer and the training loop; exports `buddo-model.bin` (float16) |
+| `public/worker.js` | Runs the model in the browser: tokenizer, transformer, sampling, KV cache |
+| `public/app.js` | Chat UI |
+| `scripts/build-artifact.mjs` | Packs `public/` into one page for hosting as a claude.ai artifact |

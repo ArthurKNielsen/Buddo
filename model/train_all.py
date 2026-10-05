@@ -1,7 +1,7 @@
 """Train Buddo start to finish with one command, on any computer.
 
     python train_all.py                          # small model, ~2.5 hours on a CPU
-    python train_all.py --size medium --pretrain 60 --finetune 30   # with a GPU
+    python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 30   # with a GPU
 
 Steps: collect Python code -> tokenizer + datasets -> pretrain -> fine-tune ->
 exam -> copy the model into ../public so the app uses it.
@@ -37,6 +37,8 @@ def main():
     ap.add_argument("--finetune", type=float, default=40, help="minutes of fine-tuning")
     ap.add_argument("--work", default="work", help="folder for data and checkpoints")
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--code-mb", type=float, default=70, help="MB of Python code to read (more helps bigger models)")
+    ap.add_argument("--batch", type=int, default=48, help="lower it (e.g. 24) if the GPU runs out of memory")
     args = ap.parse_args()
 
     work = os.path.abspath(args.work)
@@ -44,15 +46,17 @@ def main():
 
     if not os.path.exists(os.path.join(data, "raw_train.bin")):
         print("Reading Python code from:", *code_sources(), sep="\n  ")
+        os.environ["BUDDO_CODE_MB"] = str(args.code_mb)
         run("prepare.py", data, *code_sources())
     run("tasks.py", "--check")
     run("generators.py")
     run("tasks.py", data)
 
     if not os.path.exists(os.path.join(base, "ckpt.pt")):
-        run("train.py", data, base, "--size", args.size, "--minutes", str(args.pretrain), "--device", args.device)
+        run("train.py", data, base, "--size", args.size, "--minutes", str(args.pretrain), "--device", args.device, "--batch", str(args.batch))
     run("train.py", data, ft, "--init", os.path.join(base, "ckpt.pt"), "--mix", "raw:1,sft:1,tasks:3",
-        "--minutes", str(args.finetune), "--lr", "5e-4", "--warmup", "20", "--device", args.device)
+        "--minutes", str(args.finetune), "--lr", "5e-4", "--warmup", "20", "--device", args.device,
+        "--batch", str(args.batch))
 
     run("eval.py", data, os.path.join(ft, "ckpt.pt"))
 

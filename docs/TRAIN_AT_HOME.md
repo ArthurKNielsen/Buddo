@@ -64,6 +64,20 @@ This runs every step: it reads the Python code already on your computer, builds 
 
 The last lines show the exam score, e.g. `15/47 held-out programs work (32%)`. Compare sizes and settings with that number.
 
+### Recipe: RTX 3060
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install numpy
+# more Python code for Buddo to read (bigger models need more data):
+pip install django sympy pandas scikit-learn matplotlib flask requests rich
+python train_all.py --size medium --code-mb 300 --pretrain 120 --finetune 30
+```
+
+- **Laptop 3060 (6 GB)** or a `CUDA out of memory` error: add `--batch 24`.
+- **Medium beats large on a 3060.** A 50M-parameter model needs far more code than your PC has to read, so it mostly memorizes. Medium (16M) is the sweet spot.
+- **Starting over:** delete the `work` folder. To redo only training, delete `work/pretrained` and `work/finetuned`.
+
 ## 4. Chat with your model
 
 ```bash

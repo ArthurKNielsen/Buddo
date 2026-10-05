@@ -56,7 +56,7 @@ def run(code, check):
     # Tuples become lists in JSON; compare on the JSON form on both sides.
     spec = json.dumps({"code": code, "check": check}, default=list)
     try:
-        out = subprocess.run([sys.executable, "-c", RUNNER], input=spec, capture_output=True, text=True, timeout=5)
+        out = subprocess.run([sys.executable, "-c", RUNNER], input=spec, capture_output=True, text=True, encoding="utf-8", timeout=5)
         return out.stdout.strip().endswith("PASS")
     except subprocess.TimeoutExpired:
         return False

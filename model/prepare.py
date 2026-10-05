@@ -1,6 +1,7 @@
 """Build the training data: raw Python code + (instruction -> function) pairs.
 
 Usage: python prepare.py OUT_DIR SOURCE_DIR [SOURCE_DIR ...]
+Set BUDDO_CODE_MB to read more than the default 70 MB of code (bigger models need more).
 Every *.py file under the source dirs is used (e.g. the Python standard library).
 """
 
@@ -16,7 +17,7 @@ import numpy as np
 from tokenizer import BOT, END, USER, Tokenizer, train_bpe
 
 VOCAB_SIZE = 4096
-MAX_CODE_BYTES = 70_000_000
+MAX_CODE_BYTES = int(float(os.environ.get("BUDDO_CODE_MB", 70)) * 1_000_000)
 random.seed(1337)
 
 TEMPLATES = [

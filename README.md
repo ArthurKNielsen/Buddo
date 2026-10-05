@@ -9,9 +9,11 @@ Buddo is a tiny AI that writes Python, built completely from scratch. It doesn't
 
 ## How smart is it?
 
-Expectations: Buddo is about 100,000× smaller than models like ChatGPT and was trained for about 90 minutes on a laptop-class CPU. It writes Python that *looks* right, with real syntax, idioms, and function shapes, but the logic is often wrong and it can't really hold a conversation. It works best when you describe one function, docstring style, for example:
+Buddo is about 100,000× smaller than models like ChatGPT. It was pretrained for 90 minutes on a CPU, then fine-tuned for 25 minutes on 63 everyday tasks (`model/tasks.py`, every solution is run and checked) and on simple chat.
 
-> Return the sum of the squares of a list of numbers.
+- **Everyday tasks** (reverse a string, primes, factorial, fizzbuzz, sorting, files and JSON, a guessing game, a calculator, and more): it writes correct code, however you phrase the ask.
+- **Chat** ("hi", "who are you", "thanks"): it answers in words. For off-topic questions it says it only knows Python.
+- **Anything else:** it picks the closest thing it knows, so expect wrong answers. Adding more tasks to `model/tasks.py` and fine-tuning again teaches it more.
 
 Bigger models, more data, and longer training make it better. Everything you need to retrain is in `model/`.
 
@@ -36,8 +38,12 @@ Needs Python 3 with `torch` and `numpy` (PyTorch is only used for training math;
 ```bash
 cd model
 python prepare.py data /usr/lib/python3.12 /path/to/more/python/code   # tokenizer + datasets
-python train.py data out --minutes 90                                   # train on CPU
-cp data/tokenizer.json out/buddo-model.bin ../public/
+python tasks.py --check                                                 # run every task solution
+python tasks.py data                                                    # build the everyday-tasks dataset
+python train.py data out --minutes 90                                   # pretrain on code (CPU)
+python train.py data ft --init out/ckpt.pt --mix raw:1,sft:1,tasks:2 --minutes 25 --lr 5e-4 --warmup 20
+python sample.py data ft/ckpt.pt "hi" "reverse a string"                # spot check
+cp data/tokenizer.json ft/buddo-model.bin ../public/
 ```
 
 ## Files
@@ -46,6 +52,8 @@ cp data/tokenizer.json out/buddo-model.bin ../public/
 |---|---|
 | `model/tokenizer.py` | BPE tokenizer: training, encoding, decoding |
 | `model/prepare.py` | Collects code, extracts "description → function" pairs, builds datasets |
+| `model/tasks.py` | 63 verified everyday tasks + chat replies used for fine-tuning |
+| `model/sample.py` | Chat with a checkpoint in the terminal |
 | `model/train.py` | The transformer and the training loop; exports `buddo-model.bin` (float16) |
 | `public/worker.js` | Runs the model in the browser: tokenizer, transformer, sampling, KV cache |
 | `public/app.js` | Chat UI |

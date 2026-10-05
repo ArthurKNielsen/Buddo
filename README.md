@@ -9,7 +9,9 @@ Buddo is a tiny AI that writes Python, built completely from scratch. It doesn't
 
 ## How smart is it?
 
-Buddo is about 100,000× smaller than models like ChatGPT. It was pretrained for 90 minutes on a CPU, then fine-tuned for 25 minutes on 63 everyday tasks (`model/tasks.py`, every solution is run and checked) and on simple chat.
+Buddo is about 100,000× smaller than models like ChatGPT. It was pretrained for 90 minutes on a CPU, then fine-tuned for 40 minutes on 63 hand-written tasks (`model/tasks.py`), 299 generated programs (`model/generators.py`) and simple chat. Every training answer is run and checked first.
+
+**Exam score:** 47 generated programs are held out and never trained on. `model/eval.py` asks Buddo for each one, runs its code in a sandbox, and checks the result. v1 passed 1/47 (2%). v2 passes 15/47 (32%). Results are in `docs/exam-results-v2.json`, and the full training write-up is `docs/how-buddo-learns.html`.
 
 - **Everyday tasks** (reverse a string, primes, factorial, fizzbuzz, sorting, files and JSON, a guessing game, a calculator, and more): it writes correct code, however you phrase the ask.
 - **Chat** ("hi", "who are you", "thanks"): it answers in words. For off-topic questions it says it only knows Python.
@@ -41,7 +43,9 @@ python prepare.py data /usr/lib/python3.12 /path/to/more/python/code   # tokeniz
 python tasks.py --check                                                 # run every task solution
 python tasks.py data                                                    # build the everyday-tasks dataset
 python train.py data out --minutes 90                                   # pretrain on code (CPU)
-python train.py data ft --init out/ckpt.pt --mix raw:1,sft:1,tasks:2 --minutes 25 --lr 5e-4 --warmup 20
+python generators.py                                                    # build + verify generated programs
+python train.py data ft --init out/ckpt.pt --mix raw:1,sft:1,tasks:3 --minutes 40 --lr 5e-4 --warmup 20
+python eval.py data ft/ckpt.pt                                          # the exam
 python sample.py data ft/ckpt.pt "hi" "reverse a string"                # spot check
 cp data/tokenizer.json ft/buddo-model.bin ../public/
 ```
@@ -53,6 +57,9 @@ cp data/tokenizer.json ft/buddo-model.bin ../public/
 | `model/tokenizer.py` | BPE tokenizer: training, encoding, decoding |
 | `model/prepare.py` | Collects code, extracts "description → function" pairs, builds datasets |
 | `model/tasks.py` | 63 verified everyday tasks + chat replies used for fine-tuning |
+| `model/generators.py` | 299 generated programs across 10 families, each verified |
+| `model/eval.py` | The exam: held-out programs, answers run in a sandbox |
+| `docs/how-buddo-learns.html` | Training write-up with data samples, loss curves and exam results |
 | `model/sample.py` | Chat with a checkpoint in the terminal |
 | `model/train.py` | The transformer and the training loop; exports `buddo-model.bin` (float16) |
 | `public/worker.js` | Runs the model in the browser: tokenizer, transformer, sampling, KV cache |

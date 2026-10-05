@@ -1,0 +1,243 @@
+{
+ "/tmp/claude-0/-home-user-Buddo/7d2a60d6-c560-58ac-a7e8-d7242691faa5/scratchpad/ft2/ckpt.pt": {
+  "passed": 15,
+  "total": 47,
+  "log": [
+   {
+    "prompt": "write a python function to count the even numbers in a list",
+    "answer": "def count_evens(numbers):\n    return sum(1 for n in numbers if n % 2 == 0)\n\n\nprint(count_evens([3, -1, 8, 10, 5, -6, 12, 7]))  # 4",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to keep only the positive numbers in a list",
+    "answer": "def negatives(numbers):\n    result = []\n    for n in numbers:\n        if n < 0:\n            result.append(n)\n    return result\n\n\nprint(negatives([3, -1, 8, 10, 5, -6, 12, 7]))  # [-1, -6]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to count the positive numbers in a list",
+    "answer": "def count_negatives(numbers):\n    return sum(1 for n in numbers if n < 0)\n\n\nprint(count_negatives([3, -1, 8, 10, 5, -6, 12, 7]))  # 2",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to add up the numbers less than 0 in a list",
+    "answer": "def sum_less_than_0(numbers):\n    return sum(n for n in numbers if n < 0)\n\n\nprint(sum_less_than_0([3, -1, 8, 10, 5, -6, 12, 7]))  # 45",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to count the numbers greater than 10 in a list",
+    "answer": "def count_greater_than_10(numbers):\n    return sum(1 for n in numbers if n > 10)\n\n\nprint(count_greater_than_10([3, -1, 8, 10, 5, -6, 12, 7]))  # 6",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to keep only the numbers greater than 20 in a list",
+    "answer": "def greater_than_20(numbers):\n    result = []\n    for n in numbers:\n        if n > 20:\n            result.append(n)\n    return result\n\n\nprint(greater_than_20([3, -1, 8, 10, 5, -6, 12, 7]))  # [8, 10, -6, 12, 7]",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to count the numbers greater than 20 in a list",
+    "answer": "def count_greater_than_20(numbers):\n    return sum(1 for n in numbers if n > 20)\n\n\nprint(count_greater_than_20([3, -1, 8, 10, 5, -6, 12, 7]))  # 0",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to count the numbers greater than 50 in a list",
+    "answer": "def count_greater_than_50(numbers):\n    return sum(1 for n in numbers if n > 50)\n\n\nprint(count_greater_than_50([3, -1, 8, 10, 5, -6, 12, 7]))  # 0",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to keep only the numbers less than 100 in a list",
+    "answer": "def less_than_100(numbers):\n    result = []\n    for n in numbers:\n        if n < 100:\n            result.append(n)\n    return result\n\n\nprint(less_than_100([3, -1, 8, 10, 5, -6, 12, 7]))  # [3, -1, 8, 10, 5, -6, 12, 7]",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to add up the numbers divisible by 3 in a list",
+    "answer": "def sum_divisible_by_3(numbers):\n    return sum(n for n in numbers if n % 3 == 0)\n\n\nprint(sum_divisible_by_3([3, -1, 8, 10, 5, -6, 12, 7]))  # 37",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to keep only the numbers divisible by 4 in a list",
+    "answer": "def divisible_by_4(numbers):\n    return [n for n in numbers if n % 4 == 0]\n\n\nprint(divisible_by_4([3, -1, 8, 10, 5, -6, 12, 7]))  # [3, -6, 12]",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to negate every number in a list",
+    "answer": "def negate_all(numbers):\n    return [n / 2 for n in numbers]\n\n\nprint(negate_all([3, -1, 8, 10, 5, -6, 12, 7]))  # [1.5, -0.5, 4.0, 5.0, 2.5, -3.0, 6.0, 3.5]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to subtract 100 from every number in a list",
+    "answer": "def subtract_100(numbers):\n    return [n - 100 for n in numbers]\n\n\nprint(subtract_100([3, -1, 8, 10, 5, -6, 12, 7]))  # [103, 99, 108, 110, 105, 94, 112, 107]",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to multiply every number in a list by 100",
+    "answer": "def times_1(numbers):\n    return [n * 100 for n in numbers]\n\n\nprint(times_1([3, -1, 8, 10, 5, -6, 12, 7]))  # [30, -100, 80, 100, 50, -60, 120, 70]",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to sort a list of words by length",
+    "answer": "def sort_by_length_desc(words):\n    return sorted(words, key=len, reverse=True)\n\n\nprint(sort_by_length_desc(['apple', 'kiwi', 'banana', 'fig', 'cherry']))  # ['banana', 'cherry', 'apple', 'kiwi', 'fig']",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to sort words by their last letter",
+    "answer": "def sort_by_words(text):\n    return sorted(text.split(), key=len)\n\n\nprint(sort_by_words('Hello World'))  # ['Hello', 'World']",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to sort a list of dictionaries by score",
+    "answer": "def sort_by_score_desc(people):\n    return sorted(people, key=lambda p: p[\"score\"], reverse=True)\n\n\nprint(sort_by_score_desc([{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]))  # [{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to sort a list of dictionaries by name from highest to lowest",
+    "answer": "def sort_by_name(people):\n    return sorted(people, key=lambda p: p[\"name\"])\n\n\nprint(sort_by_name([{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]))  # [{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to remove the vowels from a string",
+    "answer": "def remove_vowels(text):\n    return text.replace(\"vowel\", \"\")\n\n\nprint(remove_vowels('Hello World'))  # 'Hello World'",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to replace the word red with blue in a string",
+    "answer": "def replace_round(text):\n    return text.replace(\"bad\", \"good\")\n\n\nprint(replace_round('the bad sat'))  # 'the good sat'",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to find the words that start with a",
+    "answer": "def starts_with_words(text):\n    return [len(text) for text in text.split()]\n\n\nprint(starts_with_words(\"the cat and the hat\"))",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to make every word in a list uppercase",
+    "answer": "def acronym(words):\n    return [w for w in words if \"a\" in w.lower()]\n\n\nprint(acronym(['apple', 'kiwi', 'banana', 'fig', 'cherry']))  # ['apple', 'banana']",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to join a list of words into a sentence",
+    "answer": "def join_words(text):\n    return [len(words) for word in text.split()]\n\n\nprint(remove_words('Hello World'))  # [5, 5]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to find the longest word in a list",
+    "answer": "def longest_word(text):\n    return max(text.split(), key=len)\n\n\nprint(longest_word('Hello World'))  # 'Hello'",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to make a dictionary of words and their lengths",
+    "answer": "def 2(words):\n    return [w for w in words if \"a\" in w.lower()]\n\n\nprint(2)\nprint(3)",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to volume of a cylinder",
+    "answer": "def cylinder(c):\n    return c * c * 9 / 5 + 32\n\n\nprint(cylinder(\"Hello World\"))  # 3",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to volume of a box",
+    "answer": "import math\n\n\ndef hypotenuse(a, b):\n    return math.sqrt(a ** 2 + b ** 2)\n\n\nprint(hypotenuse(3, 4))  # 5.0",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to convert kilograms to pounds",
+    "answer": "def km_to_pow(km):\n    return km * 0.621371\n\n\nprint(km_to_pow(10, 6))  # 6.21371",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to convert hours to minutes",
+    "answer": "def hours_to_c(hours):\n    return (hours // 2) ** 2\n\n\nprint(hours_to_c(212))  # GraphModule",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to find the bigger of two numbers",
+    "answer": "def biggest(a, b):\n    x, y = a, b\n    while y:\n        x, y = y, x % y\n    return a * b // x\n\n\nprint(biggest(3, 6))  # 12",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to raise a number to a power",
+    "answer": "def power_total(self):\n    return sum(self.total() for i in range(self.total()))",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to square root of a number",
+    "answer": "def square_roots(n):\n    root = int(n ** 0.5)\n    return root * root == n\n\n\nprint(square_roots(10))  # 7.0",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to count the digits in a number",
+    "answer": "def digit_sum(n):\n    return sum(int(d) for d in str(abs(n)))\n\n\nprint(digit_sum(1234))  # 10",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to convert binary to a number",
+    "answer": "def to_binary(n):\n    return bin(n)[2:]\n\n\nprint(to_binary(10))  # '1010'",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to find the key with the highest value in a dictionary",
+    "answer": "def bottom_key(scores):\n    return min(scores, key=scores.get)\n\n\nprint(bottom_key({'ana': 88, 'ben': 95, 'cy': 72}))  # 'cy'",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to average of the values in a dictionary",
+    "answer": "def average(words):\n    return sum(len(w) for w in words) / len(w)\n\n\nprint(average([2, 4, 6]))  # 4.0",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to swap the keys and values in a dictionary",
+    "answer": "def swap(items, values):\n    return dict(zip(items, values))\n\n\nprint(swap([1, 2, 3, 4], 5))  # {1, 2, 3, 4, 5}",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to get a sorted list of a dictionary's keys",
+    "answer": "def sort(scores):\n    seen = set()\n    result = []\n    for item in items:\n        if item not in seen:\n            seen.add(item)\n            result.append(item)\n    return result\n\n\nprint(sort((scores, key=lambda item: item[1], reverse=True))  # [1, 2, 3]",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to keep the dictionary entries with a value above 2",
+    "answer": "def above_2(scores):\n    return {k: v for k, v in scores.items() if v > 2}\n\n\nprint(above_2([3, -1, 8, 10, 5, -6, 12, 7]))  # {'a': 1, 'a': 3, 'b': 2}",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to print the numbers from 1 to 10",
+    "answer": "for i in range(1, 11):\n    print(i)",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to print the squares of the numbers from 1 to 10",
+    "answer": "for i in range(1, 11):\n    print(i, i * i)",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to add up the numbers from 1 to 10 with a loop",
+    "answer": "total = 0\nfor i in range(1, 11):\n    total += i\nprint(total)",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to print the squares of the numbers from 1 to 20",
+    "answer": "for i in range(1, 21):\n    print(i, i * i)",
+    "pass": true
+   },
+   {
+    "prompt": "write a python function to print a 6 by 6 square of stars",
+    "answer": "for _ in range(6):\n    print(\"*\" * 5)",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to make a car class",
+    "answer": "class CarryPoint:\n    def __init__(self, name, color):\n        self.name = name\n        self.color = color\n\n    def meow(self):\n        return f\"{self.name} says meow\"\n\n\nobj = CarryPoint(\"y\", \"\")\nprint(obj.meow())",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to make a student class",
+    "answer": "class Stack:\n    def __init__(self, name, price):\n        self.name = name\n        self.price = price\n\n    def with_tax(self):\n        return f\"{self.name} says woof!\"\n\n\nobj = Stack(\"Sam\")\nprint(obj.describe())",
+    "pass": false
+   },
+   {
+    "prompt": "write a python function to make a counter class",
+    "answer": "class Counter:\n    def __init__(self, name, price):\n        self.name = name\n        self.price = price\n\n    def with_tax(self):\n        return f\"{self.name} says woof!\"\n\n\nobj = Counter(\"Rex\", 3)\nprint(obj.descending())",
+    "pass": false
+   }
+  ]
+ }
+}

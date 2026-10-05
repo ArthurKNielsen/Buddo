@@ -1,0 +1,515 @@
+<title>How Buddo Learns</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a single reading column of numbered stages, with wide figures and code panels breaking out to the column edge. */
+:root {
+  --bg: #f7f6fb;
+  --surface: #ffffff;
+  --ink: #1b1928;
+  --ink-2: #4d4962;
+  --ink-3: #77728c;
+  --rule: #e3e0ee;
+  --accent: #6c4cf1;
+  --accent-soft: #ece7ff;
+  --code-bg: #16141f;
+  --code-ink: #e8e5f4;
+  --code-dim: #8f8aa6;
+  --tok-user: #2a78d6;
+  --tok-bot: #1baf7a;
+  --tok-end: #eb6834;
+  --pass: #1a7f4b;
+  --pass-bg: #e3f4ea;
+  --fail: #b53a2f;
+  --fail-bg: #fbe7e4;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #ebe9f2;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #110f18;
+    --surface: #1a1824;
+    --ink: #eeecf7;
+    --ink-2: #bdb8d0;
+    --ink-3: #8e89a4;
+    --rule: #2c2939;
+    --accent: #9d86ff;
+    --accent-soft: #2a2348;
+    --code-bg: #0b0a10;
+    --tok-user: #3987e5;
+    --tok-bot: #199e70;
+    --tok-end: #d95926;
+    --pass: #5ccf8e;
+    --pass-bg: #163325;
+    --fail: #ff8a7d;
+    --fail-bg: #3a1c19;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --grid: #262333;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #110f18;
+  --surface: #1a1824;
+  --ink: #eeecf7;
+  --ink-2: #bdb8d0;
+  --ink-3: #8e89a4;
+  --rule: #2c2939;
+  --accent: #9d86ff;
+  --accent-soft: #2a2348;
+  --code-bg: #0b0a10;
+  --tok-user: #3987e5;
+  --tok-bot: #199e70;
+  --tok-end: #d95926;
+  --pass: #5ccf8e;
+  --pass-bg: #163325;
+  --fail: #ff8a7d;
+  --fail-bg: #3a1c19;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --grid: #262333;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font-body); margin: 0; }
+.wrap { max-width: 860px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(36px, 7vw, 60px); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(24px, 4vw, 32px); font-weight: 800; }
+h3 { font-size: 18px; font-weight: 600; }
+p { margin: 0; max-width: 66ch; color: var(--ink-2); }
+code, pre, .mono { font-family: var(--font-mono); }
+p code, li code, td code { font-size: 0.88em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+a { color: var(--accent); }
+
+.hero { display: grid; gap: 18px; padding-bottom: 36px; border-bottom: 1px solid var(--rule); }
+.eyebrow { font: 600 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 19px; color: var(--ink-2); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; margin-top: 8px; }
+.fact { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; }
+.fact b { font: 600 24px/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
+.fact span { font-size: 13px; color: var(--ink-3); }
+
+section { display: grid; gap: 16px; padding-block: 44px 8px; }
+.stage { font: 600 13px/1 var(--font-mono); color: var(--ink-3); }
+
+.pipeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: step; }
+.pipeline li { display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--rule); }
+.pipeline li:first-child { border-top: 0; }
+.pipeline li::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 600 14px var(--font-mono); }
+.pipeline h3 { margin-bottom: 2px; }
+.pipeline p { font-size: 15px; }
+.pipeline .num { font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); }
+
+.panel { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; }
+.panel header { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; font: 12px var(--font-mono); color: var(--code-dim); border-bottom: 1px solid rgba(255,255,255,.07); }
+.panel pre { margin: 0; padding: 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+.stream { padding: 16px 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 13px var(--font-mono); }
+.tok { padding: 3px 7px; border-radius: 5px; background: rgba(255,255,255,.08); white-space: pre; }
+.tok.special { color: #fff; font-weight: 600; }
+.tok.user { background: var(--tok-user); }
+.tok.bot { background: var(--tok-bot); }
+.tok.end { background: var(--tok-end); }
+.legend-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--ink-3); }
+.legend-row i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tabs button { font: 500 14px var(--font-body); padding: 7px 12px; border-radius: 999px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tabs button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabpanel { display: grid; gap: 12px; }
+.pair { display: grid; gap: 0; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.pair .q { padding: 10px 14px; font-size: 14px; display: flex; gap: 10px; align-items: baseline; }
+.pair .q::before { content: "you"; font: 600 11px var(--font-mono); color: var(--tok-user); text-transform: uppercase; letter-spacing: .08em; }
+.pair pre { margin: 0; padding: 12px 14px; background: var(--code-bg); color: var(--code-ink); font-size: 12.5px; overflow-x: auto; }
+.pair .chat-a { padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--ink); }
+.bars { display: grid; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(110px, 160px) 1fr 40px; gap: 10px; align-items: center; font-size: 14px; }
+.bar-row .track { height: 10px; background: var(--grid); border-radius: 0 4px 4px 0; }
+.bar-row .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+.bar-row b { font-variant-numeric: tabular-nums; text-align: right; font-weight: 500; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 12.5px var(--font-mono); padding: 3px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--rule); color: var(--ink-2); }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 14px 10px; display: grid; gap: 8px; }
+figcaption { font-size: 14px; color: var(--ink-3); }
+figure h3 { font-size: 16px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font: 11px var(--font-body); fill: var(--ink-3); }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font: 12px/1.4 var(--font-mono); padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -110%); }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+tr:last-child td { border-bottom: 0; }
+td.n { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 13px; }
+
+.score { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.score div { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 4px; }
+.score b { font: 800 44px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.score span { color: var(--ink-3); font-size: 14px; }
+.score .after b { color: var(--accent); }
+.exam { display: grid; gap: 6px; }
+details { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+summary { cursor: pointer; padding: 9px 12px; display: flex; gap: 10px; align-items: center; font-size: 14px; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.badge { font: 600 11px var(--font-mono); padding: 2px 7px; border-radius: 999px; flex: none; }
+.badge.pass { color: var(--pass); background: var(--pass-bg); }
+.badge.fail { color: var(--fail); background: var(--fail-bg); }
+details pre { margin: 0 12px 12px; padding: 10px 12px; border-radius: 8px; background: var(--code-bg); color: var(--code-ink); font-size: 12.5px; overflow-x: auto; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.note { font-size: 14px; color: var(--ink-3); }
+.callout { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; display: grid; gap: 6px; }
+ul.plain { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 66ch; }
+footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--ink-3); }
+
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  .bar-row { grid-template-columns: 110px 1fr 34px; font-size: 13px; }
+  .score b { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Buddo · training notes</div>
+    <h1>How Buddo learns</h1>
+    <p class="lede">Buddo is a 3.46-million-parameter language model built from nothing: no Ollama, no Hugging Face, no pretrained weights. This page shows everything that goes into it: the data, the exact text it reads, how training runs, and an exam that runs its code to see what actually works.</p>
+    <div class="facts" id="facts"></div>
+  </header>
+
+  <section>
+    <div class="stage">01 · Pipeline</div>
+    <h2>From source code to your phone</h2>
+    <ol class="pipeline" id="pipeline"></ol>
+  </section>
+
+  <section>
+    <div class="stage">02 · The "system prompt"</div>
+    <h2>Buddo has no system prompt</h2>
+    <p>Big chatbots get a hidden paragraph of instructions before every chat. A model this small can't follow written instructions, so Buddo has none. Its personality and its habits come entirely from its training examples. What it actually reads is one long stream of tokens, with three special markers that say who is talking:</p>
+    <div class="panel">
+      <header><span>exactly what the model sees</span><span id="stream-count"></span></header>
+      <div class="stream" id="stream"></div>
+    </div>
+    <div class="legend-row">
+      <span><i style="background:var(--tok-user)"></i>&lt;|user|&gt; your message starts</span>
+      <span><i style="background:var(--tok-bot)"></i>&lt;|bot|&gt; Buddo's reply starts</span>
+      <span><i style="background:var(--tok-end)"></i>&lt;|end|&gt; reply is finished</span>
+    </div>
+    <p>Each grey chip is one token from Buddo's own tokenizer: 4,096 word pieces learned from Python code (byte-pair encoding). Common chunks like <code> function</code> are one token; rarer words get split, like <code>re</code> + <code>verse</code>. When you send a message, the app builds this stream from the whole chat (up to 20,000 tokens), and Buddo predicts the next token again and again until it produces <code>&lt;|end|&gt;</code>.</p>
+    <div class="callout">
+      <h3>Where its personality comes from</h3>
+      <p>These hand-written replies are mixed into training many times. Buddo learned "who it is" from them.</p>
+    </div>
+    <div class="table-wrap"><table id="chat-table"><thead><tr><th>When you say</th><th>Buddo learned to reply</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="stage">03 · Training data</div>
+    <h2>What Buddo reads</h2>
+    <p>Training happens in two phases. <b>Pretraining</b> teaches Python itself by reading lots of real code. <b>Fine-tuning</b> teaches the back-and-forth: a request goes in, working code comes out.</p>
+    <div class="tabs" role="tablist" id="data-tabs"></div>
+    <div id="data-panels"></div>
+  </section>
+
+  <section>
+    <div class="stage">04 · Training runs</div>
+    <h2>Watching it learn</h2>
+    <p><b>Loss</b> measures how surprised the model is by the next token: lower means better predictions. Every step, the model reads a batch of 48 snippets of 256 tokens, measures its loss, and nudges all 3.46M numbers slightly to do better (backpropagation with the AdamW optimizer). <b>Validation loss</b> is measured on text it never trains on, so it shows real learning rather than memorization.</p>
+    <figure>
+      <h3>Phase 1 · Pretraining on Python code</h3>
+      <div class="chart" id="chart-pre"></div>
+      <figcaption id="cap-pre"></figcaption>
+    </figure>
+    <figure>
+      <h3>Phase 2 · Fine-tuning on requests and answers</h3>
+      <div class="chart" id="chart-ft"></div>
+      <figcaption id="cap-ft"></figcaption>
+    </figure>
+    <div class="table-wrap"><table id="hyper"><thead><tr><th>Setting</th><th>Value</th><th>What it means</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="stage">05 · The exam</div>
+    <h2>Does the code actually work?</h2>
+    <p>Before training, 1 in 8 of the generated programs were locked away. Buddo never sees them. For the exam, Buddo gets each one as a request, its answer runs in a sandbox, and it passes only if the code works on real test inputs.</p>
+    <div class="score" id="score"></div>
+    <div class="filters tabs" id="exam-filter"></div>
+    <div class="exam" id="exam"></div>
+  </section>
+
+  <section>
+    <div class="stage">06 · The ceiling</div>
+    <h2>Why it can't be 1000× smarter (yet)</h2>
+    <p>A model's smarts mostly scale with the compute spent training it. Buddo trained on 4 CPU cores. Here's how that compares to GPT-3, the model behind the first ChatGPT. The scale is logarithmic: every gridline is 10× more.</p>
+    <figure>
+      <h3>Total training compute (floating-point operations)</h3>
+      <div class="chart" id="chart-compute"></div>
+      <figcaption id="cap-compute"></figcaption>
+    </figure>
+    <p>That's why Buddo gets better through <i>better data</i> (verified, varied tasks) instead of size. To make a real jump, these are the levers, in order of impact:</p>
+    <ul class="plain">
+      <li><b>A GPU.</b> Even a free cloud GPU trains about 50–100× faster than these 4 cores, which buys a ~10× bigger model trained on far more code.</li>
+      <li><b>More verified tasks.</b> Every new generator family in <code>model/generators.py</code> teaches a new pattern, and the exam score tells us if it worked.</li>
+      <li><b>Longer pretraining.</b> Buddo has read each line of code about once; a few more passes keep lowering the loss.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="stage">07 · Do it yourself</div>
+    <h2>Train your own Buddo</h2>
+    <div class="panel"><header><span>terminal</span><span>model/</span></header><pre id="cmds"></pre></div>
+  </section>
+
+  <footer>Every number on this page comes from Buddo's real training logs and data files. Code: <code>buddo-from-scratch</code> branch of ArthurKNielsen/Buddo.</footer>
+</div>
+
+<script id="report-data" type="application/json">{"config": {"vocab_size": 4096, "n_layer": 6, "n_head": 6, "d_model": 192, "train_ctx": 256}, "params": 3460000, "tokens": {"raw": 24737100, "sft": 3381453, "tasks": 563866}, "curves": {"pretrain": {"train": [[0, 8.321, 3], [25, 6.968, 59], [50, 5.497, 115], [75, 4.925, 170], [100, 4.355, 224], [125, 4.147, 277], [150, 4.061, 330], [175, 3.899, 385], [200, 3.782, 441], [225, 3.635, 493], [250, 3.641, 546], [275, 3.586, 616], [300, 3.444, 679], [325, 3.347, 738], [350, 3.281, 800], [375, 3.342, 855], [400, 3.18, 909], [425, 3.052, 965], [450, 3.091, 1020], [475, 3.008, 1077], [500, 3.068, 1171], [525, 2.885, 1236], [550, 2.94, 1291], [575, 2.792, 1346], [600, 2.902, 1400], [625, 2.822, 1454], [650, 2.776, 1508], [675, 2.568, 1562], [700, 2.75, 1618], [725, 2.598, 1672], [750, 2.656, 1727], [775, 2.669, 1789], [800, 2.543, 1847], [825, 2.501, 1904], [850, 2.455, 1959], [875, 2.576, 2017], [900, 2.496, 2074], [925, 2.486, 2129], [950, 2.328, 2185], [975, 2.343, 2241], [1000, 2.308, 2298], [1025, 2.338, 2360], [1050, 2.339, 2416], [1075, 2.433, 2470], [1100, 2.357, 2524], [1125, 2.433, 2579], [1150, 2.365, 2633], [1175, 2.436, 2687], [1200, 2.242, 2742], [1225, 2.252, 2797], [1250, 2.375, 2852], [1275, 2.174, 2917], [1300, 2.347, 2974], [1325, 2.289, 3034], [1350, 2.202, 3093], [1375, 2.278, 3151], [1400, 2.175, 3209], [1425, 2.081, 3265], [1450, 2.195, 3321], [1475, 2.288, 3378], [1500, 2.191, 3433], [1525, 2.193, 3500], [1550, 2.157, 3556], [1575, 2.067, 3609], [1600, 2.087, 3663], [1625, 2.062, 3717], [1650, 2.206, 3773], [1675, 2.118, 3830], [1700, 1.942, 3888], [1725, 2.083, 3943], [1750, 2.099, 4001], [1775, 2.095, 4066], [1800, 2.111, 4125], [1825, 2.041, 4185], [1850, 2.165, 4242], [1875, 2.114, 4302], [1900, 2.123, 4359], [1925, 1.91, 4419], [1950, 2.067, 4479], [1975, 1.925, 4539], [2000, 2.18, 4598], [2025, 2.172, 4666], [2050, 2.064, 4723], [2075, 1.937, 4778], [2100, 2.065, 4837], [2125, 1.873, 4894], [2150, 2.163, 4950], [2175, 1.946, 5007], [2200, 1.898, 5065], [2225, 1.931, 5122], [2250, 2.028, 5179], [2275, 1.889, 5244], [2300, 1.996, 5301], [2325, 1.889, 5356]], "val": [[250, 3.608], [500, 3.012], [750, 2.73], [1000, 2.494], [1250, 2.313], [1500, 2.254], [1750, 2.183], [2000, 2.173], [2250, 2.061], [2346, 2.073]]}, "ft1": {"train": [[0, 2.464, 3], [25, 1.545, 63], [50, 1.267, 122], [75, 1.372, 183], [100, 1.154, 243], [125, 1.131, 302], [150, 1.18, 363], [175, 1.12, 422], [200, 1.21, 483], [225, 1.213, 545], [250, 1.114, 604], [275, 1.042, 676], [300, 1.13, 740], [325, 1.085, 804], [350, 1.008, 867], [375, 1.108, 927], [400, 1.031, 991], [425, 1.06, 1056], [450, 1.074, 1118], [475, 1.058, 1184], [500, 1.087, 1248], [525, 1.083, 1319], [550, 1.038, 1379], [575, 1.086, 1438], [600, 1.086, 1500]], "val": [[250, 1.141], [500, 1.102], [602, 1.135]]}, "ft2": {"train": [[0, 2.675, 16], [25, 1.62, 119], [50, 1.247, 213], [75, 1.166, 296], [100, 1.119, 354], [125, 1.054, 414], [150, 1.113, 475], [175, 1.092, 538], [200, 1.025, 598], [225, 1.015, 660], [250, 0.957, 721], [275, 0.937, 789], [300, 1.027, 850], [325, 0.984, 911], [350, 0.958, 970], [375, 1.037, 1032], [400, 0.93, 1092], [425, 0.95, 1153], [450, 1.012, 1214], [475, 0.992, 1276], [500, 1.009, 1340], [525, 0.951, 1411], [550, 0.964, 1470], [575, 0.953, 1529], [600, 0.881, 1586], [625, 0.936, 1644], [650, 1.008, 1704], [675, 0.908, 1761], [700, 0.916, 1819], [725, 0.899, 1876], [750, 0.991, 1934], [775, 0.909, 2001], [800, 0.854, 2060], [825, 0.856, 2119], [850, 0.816, 2176], [875, 0.959, 2233], [900, 0.991, 2289], [925, 0.95, 2344]], "val": [[250, 1.028], [500, 0.999], [750, 0.961], [950, 0.95]]}}, "raw_sample": "import itertools\n\nimport pytest\n\nimport numpy as np\nfrom numpy._core import _umath_tests\nfrom numpy._core._multiarray_tests import internal_overlap, solve_diophantine\nfrom numpy.lib.stride_tricks import as_strided\nfrom numpy.testing import assert_, assert_array_equal, assert_equal, assert_raises\n\nndims = 2\nsize = 10\nshape = tuple([size] * ndims)\n\nMAY_SHARE_BOUNDS = 0\nMAY_SHARE_EXACT = -1\n\n\ndef _indices_for_nelems(nelems):\n    \"\"\"Returns slices of length nelems, from start onwards, in direction sign.\"\"\"\n\n    if nelems == 0:\n        return [size // 2]  # int index\n\n    res = []\n    for step in (1, 2):\n        for sign in (-1, 1):\n            start = size // 2 - nelems * step * sign // 2\n            stop = start + nelems * step * sign", "lib_pairs": [{"q": "Write a function called strides_symbolic. Get the symbolic strides of all input nodes.", "a": "def strides_symbolic(self) -> tuple[tuple[sympy.Integer, ...], ...]:\n    return tuple(node.get_stride() for node in self._input_nodes)"}, {"q": "Returns a directed_random graph with the given degree sequences.", "a": "@py_random_state(3)\n@nx._dispatchable(graphs=None, returns_graph=True)\ndef directed_configuration_model(\n    in_degree_sequence, out_degree_sequence, create_using=None, seed=None\n):\n    if sum(in_degree_sequence) != sum(out_degree_sequence):\n        msg = \"Invalid degree sequences: sequences must have equal sums\"\n        raise nx.NetworkXError(msg)\n\n    if create_using is None:\n        create_using = nx.MultiDiGraph\n\n    G = _configuration_model(\n        out_degree_sequence,\n        create_using,\n        directed=True,\n        in_deg_sequence=in_degree_sequence,\n        seed=seed,\n    )\n\n    name = \"directed configuration_model {} nodes {} edges\"\n    return G"}, {"q": "write a python function to sends a PATCH request", "a": "def patch(url, data=None, **kwargs):\n\n    return request(\"patch\", url, data=data, **kwargs)"}], "task_samples": [{"q": "show me how to tip calculator", "a": "def tip(bill, percent):\n    return bill * percent / 100\n\n\nprint(tip(50, 20))  # 10.0"}, {"q": "Write a Python function to make a dictionary from two lists.", "a": "def make_dict(keys, values):\n    return dict(zip(keys, values))\n\n\nprint(make_dict(['a', 'b'], [1, 2]))  # {'a': 1, 'b': 2}"}, {"q": "Write a Python function to print a multiplication table.", "a": "def times_table(n, upto=10):\n    for i in range(1, upto + 1):\n        print(f\"{n} x {i} = {n * i}\")\n\n\ntimes_table(7)"}, {"q": "python code to even or odd checker", "a": "def is_even(n):\n    return n % 2 == 0\n\n\nprint(is_even(4))  # True\nprint(is_even(7))  # False"}, {"q": "write a function that can write to a file", "a": "def write_file(path, text):\n    with open(path, \"w\", encoding=\"utf-8\") as f:\n        f.write(text)\n\n\n# write_file(\"notes.txt\", \"hello\")"}, {"q": "code to reverse the digits of an integer", "a": "def reverse_number(n):\n    sign = -1 if n < 0 else 1\n    return sign * int(str(abs(n))[::-1])\n\n\nprint(reverse_number(1234))  # 4321"}, {"q": "write a python function to perimeter of a rectangle", "a": "def rectangle_perimeter(width, height):\n    return 2 * (width + height)\n\n\nprint(rectangle_perimeter(3, 4))  # 14"}, {"q": "I need a function to sort numbers from largest to smallest", "a": "def sort_descending(numbers):\n    return sorted(numbers, reverse=True)\n\n\nprint(sort_descending([3, -1, 8, 10, 5, -6, 12, 7]))  # [12, 10, 8, 7, 5, 3, -1, -6]"}], "chat": [{"q": "hi", "a": "Hey! I'm Buddo. Ask me to write some Python, like \"reverse a string\" or \"check if a number is prime\"."}, {"q": "how are you", "a": "I'm good! Ready to write some Python. What do you need?"}, {"q": "who are you", "a": "I'm Buddo, a tiny AI built completely from scratch. I run right on your phone and I'm best at writing short Python functions."}, {"q": "what can you do", "a": "I write Python. Describe what the code should do, for example: \"sum a list of numbers\", \"make a guessing game\" or \"read a json file\"."}, {"q": "thanks", "a": "No problem! Want another one?"}, {"q": "bye", "a": "See you later! Come back when you need more code."}, {"q": "what is python", "a": "Python is a popular programming language that's easy to read. People use it for websites, games, data and AI. Want me to write you a first program?"}, {"q": "tell me a joke", "a": "Why do programmers prefer dark mode? Because light attracts bugs."}, {"q": "what is 2+2", "a": "I'm a tiny model that only knows Python, so I can't answer that one. Ask me to write some code instead!"}], "families": [{"name": "list_filters", "count": 66}, {"name": "list_maps", "count": 23}, {"name": "list_reductions", "count": 12}, {"name": "sorting", "count": 14}, {"name": "strings", "count": 43}, {"name": "word_lists", "count": 21}, {"name": "formulas", "count": 48}, {"name": "dicts", "count": 12}, {"name": "printing", "count": 47}, {"name": "classes", "count": 13}], "hand_tasks": 63, "templates": ["write a python function to {t}", "Write a Python function to {t}.", "write a function that can {t}", "make a python program to {t}", "how do I {t} in python?", "how to {t} in python", "python code to {t}", "can you {t} in python", "Can you write code to {t}?", "code to {t}", "{t}", "{T}", "{t} in python", "I need a function to {t}", "pls write python to {t}", "show me how to {t}"], "tok_demo": {"text": "write a python function to reverse a string", "pieces": ["write", " a", " python", " function", " to", " re", "verse", " a", " string"], "ids": [534, 268, 586, 362, 319, 299, 1319, 268, 898]}, "vocab": 4096, "evals": {"v1": {"passed": 1, "total": 47, "log": [{"prompt": "write a python function to count the even numbers in a list", "answer": "def even_numbers(numbers):\n    return [n for n in numbers if n % 2 == 0]\n\n\nprint(even_numbers([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]", "pass": false}, {"prompt": "write a python function to keep only the positive numbers in a list", "answer": "def even_numbers(numbers):\n    return [n for n in numbers if n % 2 == 0]\n\n\nprint(even_numbers([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]", "pass": false}, {"prompt": "write a python function to count the positive numbers in a list", "answer": "def total(numbers):\n    result = 0\n    for n in numbers:\n        result += n\n    return result\n\n\nprint(total([1, 2, 3, 4]))  # 10", "pass": false}, {"prompt": "write a python function to add up the numbers less than 0 in a list", "answer": "def even_numbers(numbers):\n    return [n for n in numbers if n % 2 == 0]\n\n\nprint(even_numbers([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]", "pass": false}, {"prompt": "write a python function to count the numbers greater than 10 in a list", "answer": "def norm(numbers):\n    return [n * n for n in numbers]\n\n\nprint(norm([1, 2, 3, 4]))  # [1, 4, 9, 16]", "pass": false}, {"prompt": "write a python function to keep only the numbers greater than 20 in a list", "answer": "def even_numbers(numbers):\n    return [n for n in numbers if n % 2 == 0]\n\n\nprint(even_numbers([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]", "pass": false}, {"prompt": "write a python function to count the numbers greater than 20 in a list", "answer": "def sort_numbers(numbers):\n    return sorted(numbers)\n\n\nprint(sort_numbers([5, 2, 9, 1]))  # [1, 2, 5, 9]", "pass": false}, {"prompt": "write a python function to count the numbers greater than 50 in a list", "answer": "def count_lines(n):\n    if n < 2:\n        return 0\n    return sum(1 for n in numbers)\n\n\nprint(count_lines(\"notes.txt\"))  # 3", "pass": false}, {"prompt": "write a python function to keep only the numbers less than 100 in a list", "answer": "def even_numbers(numbers):\n    return [n for n in numbers if n % 2 == 0]\n\n\nprint(even_numbers([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]", "pass": false}, {"prompt": "write a python function to add up the numbers divisible by 3 in a list", "answer": "def divisible(num, n):\n    if n < 2:\n        return 0\n    return sum(num % n for n in numbers)\n\n\nprint(divisible([1, 2, 3, 4]))  # 14", "pass": false}, {"prompt": "write a python function to keep only the numbers divisible by 4 in a list", "answer": "def divisor(a, b):\n    return sorted(a.replace(\" \", \"\").lower()) == sorted(b.replace(\" \", \"\").lower())\n\n\nprint( divisor(\"listen\", \"silent\"))  # True", "pass": false}, {"prompt": "write a python function to negate every number in a list", "answer": "def negate_number(n):\n    if n == 0:\n        return [n * n for n in numbers]\n    return [n * n for n in numbers]\n\n\nprint(negate_number(1234))  # [1, 2, 3, 5, 8, 13, 17, 19]", "pass": false}, {"prompt": "write a python function to subtract 100 from every number in a list", "answer": "def subtract_one(self, n):\n    a = self.array_form\n    n = len(a)\n    for i in range(n):\n        a = self.array_form(a)\n        a[i] = a[i]\n    return a", "pass": false}, {"prompt": "write a python function to multiply every number in a list by 100", "answer": "def multiply(n):\n    if n < 2:\n        return 1\n    return n * n\n\n\nprint(n)p([1, 2, 3, 4])  # 10", "pass": false}, {"prompt": "write a python function to sort a list of words by length", "answer": "def sort_numbers(numbers):\n    return sorted(numbers)\n\n\nprint(sort_numbers([5, 2, 9, 1]))  # [1, 2, 5, 9]", "pass": false}, {"prompt": "write a python function to sort words by their last letter", "answer": "def sortword(text):\n    return sorted(text.split())\n\n\nprint(sortword())  # [1, 2, 3, 4, 5, 6]", "pass": false}, {"prompt": "write a python function to sort a list of dictionaries by score", "answer": "def sort_numbers(numbers):\n    return sorted(numbers)\n\n\nprint(sort_numbers([5, 2, 9, 1]))  # [1, 2, 5, 9]", "pass": false}, {"prompt": "write a python function to sort a list of dictionaries by name from highest to lowest", "answer": "def sort_descending(numbers):\n    return sorted(numbers, reverse=True)\n\n\nprint(sort_descending([5, 2, 9, 1]))  # [9, 5, 2, 1]", "pass": false}, {"prompt": "write a python function to remove the vowels from a string", "answer": "def remove_vowels(text):\n    return \"\".join(text.split())\n\n\nprint(remove_vowels(\"Hello World\"))  # hello", "pass": false}, {"prompt": "write a python function to replace the word red with blue in a string", "answer": "def replace_words(text):\n    return \" \".join(word.split())\n\n\nprint(remove_words(\"the quick brown fox\"))  # \"", "pass": false}, {"prompt": "write a python function to find the words that start with a", "answer": "def count_words(text):\n    return len(text.split())\n\n\nprint(count_words(\"the quick brown fox\"))  # 4", "pass": false}, {"prompt": "write a python function to make every word in a list uppercase", "answer": "def shout(text):\n    return text.upper()\n\n\nprint(shout(\"hello\"))  # HELLO", "pass": false}, {"prompt": "write a python function to join a list of words into a sentence", "answer": "def join_words(text):\n    return []\n\n\nprint(remove_words(\"the quick brown fox\"))  # [1, 2, 3, 4, 5, 8, 13]", "pass": false}, {"prompt": "write a python function to find the longest word in a list", "answer": "def longest_word(text):\n    words = text.split()\n    return max(words, key=len) if words else \"\"\n\n\nprint(longest_word(\"I love programming in Python\"))  # programming", "pass": false}, {"prompt": "write a python function to make a dictionary of words and their lengths", "answer": "def capitalize_words(text):\n    return \" \".join(word.capitalize() for word in text.split())\n\n\nprint(capitalize_words(\"hello there world\"))  # Hello There World", "pass": false}, {"prompt": "write a python function to volume of a cylinder", "answer": "def cylinder(c):\n    return c.cylinder().cylinder().cylinder()", "pass": false}, {"prompt": "write a python function to volume of a box", "answer": "def volume(self, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, box, bo", "pass": false}, {"prompt": "write a python function to convert kilograms to pounds", "answer": "def _convert(a, b):\n    return a * b // 2\n\n\nprint(round(a % 2))  # 55", "pass": false}, {"prompt": "write a python function to convert hours to minutes", "answer": "def hours(self):\n    return self.hours", "pass": false}, {"prompt": "write a python function to find the bigger of two numbers", "answer": "def bigg(a, b):\n    x, y = a, b\n    while y:\n        x, y = y, x % y\n    return a * b // x\n\n\nprint(round(bigg(3, 6), 2))  # 12", "pass": false}, {"prompt": "write a python function to raise a number to a power", "answer": "def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n\n\nprint(factorial(6))  # 720", "pass": false}, {"prompt": "write a python function to square root of a number", "answer": "def squares(numbers):\n    return [n * n for n in numbers]\n\n\nprint(squares([1, 2, 3, 4]))  # [1, 4, 9, 16]", "pass": false}, {"prompt": "write a python function to count the digits in a number", "answer": "def digit_sum(n):\n    return sum(int(d) for d in str(abs(n)))\n\n\nprint(digit_sum(1234))  # 10", "pass": false}, {"prompt": "write a python function to convert binary to a number", "answer": "def binary(n):\n    if n == 0:\n        return \"0\"\n    bits = \"\"\n    while n > 0:\n        bits = str(n % 2) + bits\n        n //= 2\n    return bits\n\n\nprint(bits(\"hello\"))  # 42", "pass": false}, {"prompt": "write a python function to find the key with the highest value in a dictionary", "answer": "def get_key(self, key: str) -> None:\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key = key\n    self.key =", "pass": false}, {"prompt": "write a python function to average of the values in a dictionary", "answer": "def average(self, average=1, average=0, average=1, average=1):\n    return average(average, average)", "pass": false}, {"prompt": "write a python function to swap the keys and values in a dictionary", "answer": "def swap(items, target):\n    seen = set()\n    result = []\n    for item in items:\n        if item not in seen:\n            seen.add(item)\n            result.append(item)\n    return result\n\n\nprint(largest([1, 2, 3, 4]))  # [1, 2, 3, 4]", "pass": false}, {"prompt": "write a python function to get a sorted list of a dictionary's keys", "answer": "def sort_descending(items):\n    seen = set()\n    result = []\n    for item in items:\n        if item not in seen:\n            seen.add(item)\n            result.append(item)\n    return result\n\n\nprint(sort_descending([1, 2, 2, 3, 1]))  # [1, 2, 3]", "pass": true}, {"prompt": "write a python function to keep the dictionary entries with a value above 2", "answer": "def remove_duplicates(items):\n    seen = set()\n    result = []\n    for item in items:\n        if item not in seen:\n            seen.add(item)\n            result.append(item)\n    return result\n\n\nprint(remove_duplicates([1, 2, 2, 3, 1]))  # [1, 2, 3]", "pass": false}, {"prompt": "write a python function to print the numbers from 1 to 10", "answer": "def times_table(n, upto=10):\n    for i in range(1, upto + 1):\n        print(f\"{n} x {i} = {n * i}\")\n\n\ntimes_table(7)", "pass": false}, {"prompt": "write a python function to print the squares of the numbers from 1 to 10", "answer": "def print_squares(numbers):\n    return sum(n * n for n in numbers)\n\n\nprint(squares([1, 2, 3]))  # 14", "pass": false}, {"prompt": "write a python function to add up the numbers from 1 to 10 with a loop", "answer": "def add_nearest(self, n):\n    if n > 0:\n        return 0\n    return n * n\n\n\nprint(ntheceat(0, 0))  # 10", "pass": false}, {"prompt": "write a python function to print the squares of the numbers from 1 to 20", "answer": "def print_squares(numbers):\n    return sum(n * n for n in numbers)\n\n\nprint(squares([1, 2, 3]))  # 14", "pass": false}, {"prompt": "write a python function to print a 6 by 6 square of stars", "answer": "def _fix_real_up_to():\n    return []\n\n\nprint(record([1, 2, 3, 4, 5, 6]))  # [1, 4, 6]", "pass": false}, {"prompt": "write a python function to make a car class", "answer": "def car(a, b):\n    return sorted(a.replace(\" \", \"\").lower()) == sorted(b.replace(\" \", \"\").lower())\n\n\nprint(car(\"Hello World\"))  # Hello World", "pass": false}, {"prompt": "write a python function to make a student class", "answer": "def stu(self, a, b):\n    a = _convert_other(a, raiseit=True)\n    return a._stu()", "pass": false}, {"prompt": "write a python function to make a counter class", "answer": "def counter(self):\n    return len(self.args)", "pass": false}]}, "v2": {"passed": 15, "total": 47, "log": [{"prompt": "write a python function to count the even numbers in a list", "answer": "def count_evens(numbers):\n    return sum(1 for n in numbers if n % 2 == 0)\n\n\nprint(count_evens([3, -1, 8, 10, 5, -6, 12, 7]))  # 4", "pass": true}, {"prompt": "write a python function to keep only the positive numbers in a list", "answer": "def negatives(numbers):\n    result = []\n    for n in numbers:\n        if n < 0:\n            result.append(n)\n    return result\n\n\nprint(negatives([3, -1, 8, 10, 5, -6, 12, 7]))  # [-1, -6]", "pass": false}, {"prompt": "write a python function to count the positive numbers in a list", "answer": "def count_negatives(numbers):\n    return sum(1 for n in numbers if n < 0)\n\n\nprint(count_negatives([3, -1, 8, 10, 5, -6, 12, 7]))  # 2", "pass": false}, {"prompt": "write a python function to add up the numbers less than 0 in a list", "answer": "def sum_less_than_0(numbers):\n    return sum(n for n in numbers if n < 0)\n\n\nprint(sum_less_than_0([3, -1, 8, 10, 5, -6, 12, 7]))  # 45", "pass": true}, {"prompt": "write a python function to count the numbers greater than 10 in a list", "answer": "def count_greater_than_10(numbers):\n    return sum(1 for n in numbers if n > 10)\n\n\nprint(count_greater_than_10([3, -1, 8, 10, 5, -6, 12, 7]))  # 6", "pass": true}, {"prompt": "write a python function to keep only the numbers greater than 20 in a list", "answer": "def greater_than_20(numbers):\n    result = []\n    for n in numbers:\n        if n > 20:\n            result.append(n)\n    return result\n\n\nprint(greater_than_20([3, -1, 8, 10, 5, -6, 12, 7]))  # [8, 10, -6, 12, 7]", "pass": true}, {"prompt": "write a python function to count the numbers greater than 20 in a list", "answer": "def count_greater_than_20(numbers):\n    return sum(1 for n in numbers if n > 20)\n\n\nprint(count_greater_than_20([3, -1, 8, 10, 5, -6, 12, 7]))  # 0", "pass": true}, {"prompt": "write a python function to count the numbers greater than 50 in a list", "answer": "def count_greater_than_50(numbers):\n    return sum(1 for n in numbers if n > 50)\n\n\nprint(count_greater_than_50([3, -1, 8, 10, 5, -6, 12, 7]))  # 0", "pass": true}, {"prompt": "write a python function to keep only the numbers less than 100 in a list", "answer": "def less_than_100(numbers):\n    result = []\n    for n in numbers:\n        if n < 100:\n            result.append(n)\n    return result\n\n\nprint(less_than_100([3, -1, 8, 10, 5, -6, 12, 7]))  # [3, -1, 8, 10, 5, -6, 12, 7]", "pass": true}, {"prompt": "write a python function to add up the numbers divisible by 3 in a list", "answer": "def sum_divisible_by_3(numbers):\n    return sum(n for n in numbers if n % 3 == 0)\n\n\nprint(sum_divisible_by_3([3, -1, 8, 10, 5, -6, 12, 7]))  # 37", "pass": true}, {"prompt": "write a python function to keep only the numbers divisible by 4 in a list", "answer": "def divisible_by_4(numbers):\n    return [n for n in numbers if n % 4 == 0]\n\n\nprint(divisible_by_4([3, -1, 8, 10, 5, -6, 12, 7]))  # [3, -6, 12]", "pass": true}, {"prompt": "write a python function to negate every number in a list", "answer": "def negate_all(numbers):\n    return [n / 2 for n in numbers]\n\n\nprint(negate_all([3, -1, 8, 10, 5, -6, 12, 7]))  # [1.5, -0.5, 4.0, 5.0, 2.5, -3.0, 6.0, 3.5]", "pass": false}, {"prompt": "write a python function to subtract 100 from every number in a list", "answer": "def subtract_100(numbers):\n    return [n - 100 for n in numbers]\n\n\nprint(subtract_100([3, -1, 8, 10, 5, -6, 12, 7]))  # [103, 99, 108, 110, 105, 94, 112, 107]", "pass": true}, {"prompt": "write a python function to multiply every number in a list by 100", "answer": "def times_1(numbers):\n    return [n * 100 for n in numbers]\n\n\nprint(times_1([3, -1, 8, 10, 5, -6, 12, 7]))  # [30, -100, 80, 100, 50, -60, 120, 70]", "pass": true}, {"prompt": "write a python function to sort a list of words by length", "answer": "def sort_by_length_desc(words):\n    return sorted(words, key=len, reverse=True)\n\n\nprint(sort_by_length_desc(['apple', 'kiwi', 'banana', 'fig', 'cherry']))  # ['banana', 'cherry', 'apple', 'kiwi', 'fig']", "pass": false}, {"prompt": "write a python function to sort words by their last letter", "answer": "def sort_by_words(text):\n    return sorted(text.split(), key=len)\n\n\nprint(sort_by_words('Hello World'))  # ['Hello', 'World']", "pass": false}, {"prompt": "write a python function to sort a list of dictionaries by score", "answer": "def sort_by_score_desc(people):\n    return sorted(people, key=lambda p: p[\"score\"], reverse=True)\n\n\nprint(sort_by_score_desc([{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]))  # [{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]", "pass": false}, {"prompt": "write a python function to sort a list of dictionaries by name from highest to lowest", "answer": "def sort_by_name(people):\n    return sorted(people, key=lambda p: p[\"name\"])\n\n\nprint(sort_by_name([{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]))  # [{'name': 'Ana', 'age': 31, 'score': 88}, {'name': 'Ben', 'age': 19, 'score': 95}, {'name': 'Cy', 'age': 25, 'score': 72}]", "pass": false}, {"prompt": "write a python function to remove the vowels from a string", "answer": "def remove_vowels(text):\n    return text.replace(\"vowel\", \"\")\n\n\nprint(remove_vowels('Hello World'))  # 'Hello World'", "pass": false}, {"prompt": "write a python function to replace the word red with blue in a string", "answer": "def replace_round(text):\n    return text.replace(\"bad\", \"good\")\n\n\nprint(replace_round('the bad sat'))  # 'the good sat'", "pass": false}, {"prompt": "write a python function to find the words that start with a", "answer": "def starts_with_words(text):\n    return [len(text) for text in text.split()]\n\n\nprint(starts_with_words(\"the cat and the hat\"))", "pass": false}, {"prompt": "write a python function to make every word in a list uppercase", "answer": "def acronym(words):\n    return [w for w in words if \"a\" in w.lower()]\n\n\nprint(acronym(['apple', 'kiwi', 'banana', 'fig', 'cherry']))  # ['apple', 'banana']", "pass": false}, {"prompt": "write a python function to join a list of words into a sentence", "answer": "def join_words(text):\n    return [len(words) for word in text.split()]\n\n\nprint(remove_words('Hello World'))  # [5, 5]", "pass": false}, {"prompt": "write a python function to find the longest word in a list", "answer": "def longest_word(text):\n    return max(text.split(), key=len)\n\n\nprint(longest_word('Hello World'))  # 'Hello'", "pass": false}, {"prompt": "write a python function to make a dictionary of words and their lengths", "answer": "def 2(words):\n    return [w for w in words if \"a\" in w.lower()]\n\n\nprint(2)\nprint(3)", "pass": false}, {"prompt": "write a python function to volume of a cylinder", "answer": "def cylinder(c):\n    return c * c * 9 / 5 + 32\n\n\nprint(cylinder(\"Hello World\"))  # 3", "pass": false}, {"prompt": "write a python function to volume of a box", "answer": "import math\n\n\ndef hypotenuse(a, b):\n    return math.sqrt(a ** 2 + b ** 2)\n\n\nprint(hypotenuse(3, 4))  # 5.0", "pass": false}, {"prompt": "write a python function to convert kilograms to pounds", "answer": "def km_to_pow(km):\n    return km * 0.621371\n\n\nprint(km_to_pow(10, 6))  # 6.21371", "pass": false}, {"prompt": "write a python function to convert hours to minutes", "answer": "def hours_to_c(hours):\n    return (hours // 2) ** 2\n\n\nprint(hours_to_c(212))  # GraphModule", "pass": false}, {"prompt": "write a python function to find the bigger of two numbers", "answer": "def biggest(a, b):\n    x, y = a, b\n    while y:\n        x, y = y, x % y\n    return a * b // x\n\n\nprint(biggest(3, 6))  # 12", "pass": false}, {"prompt": "write a python function to raise a number to a power", "answer": "def power_total(self):\n    return sum(self.total() for i in range(self.total()))", "pass": false}, {"prompt": "write a python function to square root of a number", "answer": "def square_roots(n):\n    root = int(n ** 0.5)\n    return root * root == n\n\n\nprint(square_roots(10))  # 7.0", "pass": false}, {"prompt": "write a python function to count the digits in a number", "answer": "def digit_sum(n):\n    return sum(int(d) for d in str(abs(n)))\n\n\nprint(digit_sum(1234))  # 10", "pass": false}, {"prompt": "write a python function to convert binary to a number", "answer": "def to_binary(n):\n    return bin(n)[2:]\n\n\nprint(to_binary(10))  # '1010'", "pass": false}, {"prompt": "write a python function to find the key with the highest value in a dictionary", "answer": "def bottom_key(scores):\n    return min(scores, key=scores.get)\n\n\nprint(bottom_key({'ana': 88, 'ben': 95, 'cy': 72}))  # 'cy'", "pass": false}, {"prompt": "write a python function to average of the values in a dictionary", "answer": "def average(words):\n    return sum(len(w) for w in words) / len(w)\n\n\nprint(average([2, 4, 6]))  # 4.0", "pass": false}, {"prompt": "write a python function to swap the keys and values in a dictionary", "answer": "def swap(items, values):\n    return dict(zip(items, values))\n\n\nprint(swap([1, 2, 3, 4], 5))  # {1, 2, 3, 4, 5}", "pass": false}, {"prompt": "write a python function to get a sorted list of a dictionary's keys", "answer": "def sort(scores):\n    seen = set()\n    result = []\n    for item in items:\n        if item not in seen:\n            seen.add(item)\n            result.append(item)\n    return result\n\n\nprint(sort((scores, key=lambda item: item[1], reverse=True))  # [1, 2, 3]", "pass": false}, {"prompt": "write a python function to keep the dictionary entries with a value above 2", "answer": "def above_2(scores):\n    return {k: v for k, v in scores.items() if v > 2}\n\n\nprint(above_2([3, -1, 8, 10, 5, -6, 12, 7]))  # {'a': 1, 'a': 3, 'b': 2}", "pass": false}, {"prompt": "write a python function to print the numbers from 1 to 10", "answer": "for i in range(1, 11):\n    print(i)", "pass": true}, {"prompt": "write a python function to print the squares of the numbers from 1 to 10", "answer": "for i in range(1, 11):\n    print(i, i * i)", "pass": true}, {"prompt": "write a python function to add up the numbers from 1 to 10 with a loop", "answer": "total = 0\nfor i in range(1, 11):\n    total += i\nprint(total)", "pass": true}, {"prompt": "write a python function to print the squares of the numbers from 1 to 20", "answer": "for i in range(1, 21):\n    print(i, i * i)", "pass": true}, {"prompt": "write a python function to print a 6 by 6 square of stars", "answer": "for _ in range(6):\n    print(\"*\" * 5)", "pass": false}, {"prompt": "write a python function to make a car class", "answer": "class CarryPoint:\n    def __init__(self, name, color):\n        self.name = name\n        self.color = color\n\n    def meow(self):\n        return f\"{self.name} says meow\"\n\n\nobj = CarryPoint(\"y\", \"\")\nprint(obj.meow())", "pass": false}, {"prompt": "write a python function to make a student class", "answer": "class Stack:\n    def __init__(self, name, price):\n        self.name = name\n        self.price = price\n\n    def with_tax(self):\n        return f\"{self.name} says woof!\"\n\n\nobj = Stack(\"Sam\")\nprint(obj.describe())", "pass": false}, {"prompt": "write a python function to make a counter class", "answer": "class Counter:\n    def __init__(self, name, price):\n        self.name = name\n        self.price = price\n\n    def with_tax(self):\n        return f\"{self.name} says woof!\"\n\n\nobj = Counter(\"Rex\", 3)\nprint(obj.descending())", "pass": false}]}}}</script>
+<script>
+const D = JSON.parse(document.getElementById("report-data").textContent);
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const fmt = (n) => n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n);
+
+const ftSteps = D.curves.ft2.val.length ? D.curves.ft2.val.at(-1)[0] : (D.curves.ft2.train.at(-1)?.[0] || 0);
+const seen = (steps) => steps * 48 * 256;
+const preSteps = D.curves.pretrain.val.at(-1)[0];
+const ft1Steps = D.curves.ft1.val.at(-1)[0];
+const totalTokensSeen = seen(preSteps) + seen(ft1Steps) + seen(ftSteps);
+const v1 = D.evals.v1, v2 = D.evals.v2;
+
+// ---------- facts ----------
+[
+  ["3.46M", "parameters (numbers it learns)"],
+  [fmt(D.tokens.raw), "tokens of Python code read"],
+  [`${Math.round((D.curves.pretrain.train.at(-1)[2] + (D.curves.ft2.train.at(-1)?.[2] || 0)) / 60)} min`, "of training on 4 CPU cores"],
+  v2 ? [`${v1.passed} → ${v2.passed}`, `of ${v2.total} never-seen programs correct`] : ["…", "exam running"],
+].forEach(([b, s]) => { const f = el("div", "fact"); f.append(el("b", null, b), el("span", null, s)); $("facts").append(f); });
+
+// ---------- pipeline ----------
+const fam = D.families.reduce((a, f) => a + f.count, 0);
+[
+  ["Collect Python code", `About 70 MB of open-source Python (the standard library plus packages like NumPy) is gathered and cleaned. From functions that have a docstring, ${fmt(D.tokens.sft)} tokens of "description → function" pairs are extracted.`],
+  ["Build a tokenizer", `A byte-pair-encoding tokenizer learns the ${D.vocab.toLocaleString()} most useful chunks of text. Written from scratch in model/tokenizer.py, with an identical JavaScript copy for the phone.`],
+  ["Pretrain", `The transformer (6 layers, 6 attention heads, 192-wide) reads code and learns to predict the next token. ${preSteps.toLocaleString()} steps, about 90 minutes.`],
+  ["Fine-tune", `It keeps training on requests paired with correct answers: ${D.hand_tasks} hand-written tasks, ${fam} generated programs and chat replies, each request phrased many ways. Every answer is executed and checked first.`],
+  ["Take the exam", `Programs it never saw are requested, and its answers are run in a sandbox to see if they work.`],
+  ["Ship to the phone", `The weights are saved as 16-bit numbers (6.9 MB) and run by a hand-written JavaScript engine right in your browser. No server.`],
+].forEach(([h, p]) => { const li = el("li"); const d = el("div"); d.append(el("h3", null, h), el("p", null, p)); li.append(d); $("pipeline").append(li); });
+
+// ---------- token stream ----------
+const exampleAnswer = (D.task_samples.find((t) => t.a.includes("reverse")) || { a: 'def reverse_string(s):\n    return s[::-1]' }).a;
+const streamTokens = [["<|user|>", "user"], ...D.tok_demo.pieces.map((p) => [p, ""]), ["<|bot|>", "bot"], ["def reverse_string(s):⏎    return s[::-1] …", ""], ["<|end|>", "end"]];
+streamTokens.forEach(([t, k]) => $("stream").append(el("span", `tok ${k ? "special " + k : ""}`, t)));
+$("stream-count").textContent = `${D.tok_demo.ids.length} tokens for your message`;
+
+D.chat.forEach((c) => { const tr = el("tr"); tr.append(el("td", null, c.q), el("td", null, c.a)); $("chat-table").tBodies[0].append(tr); });
+
+// ---------- data tabs ----------
+const tabs = [
+  ["Real code", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `Pretraining reads ${fmt(D.tokens.raw)} tokens of files like this one. Buddo learns syntax, naming and idioms just by predicting each next token.`));
+    const panel = el("div", "panel"); const h = el("header"); h.append(el("span", null, "a slice of the pretraining data"), el("span", null, "verbatim"));
+    panel.append(h, Object.assign(el("pre"), { textContent: D.raw_sample.trim() }));
+    p.append(panel); return p;
+  }],
+  ["Library pairs", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `${fmt(D.tokens.sft)} tokens of pairs extracted automatically from documented library functions. Great for learning how descriptions map to code, but they're about libraries, not everyday asks, which is why the first Buddo answered "hi" with library code.`));
+    D.lib_pairs.forEach((x) => p.append(pairEl(x.q, x.a, true)));
+    return p;
+  }],
+  ["Everyday tasks", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, `${D.hand_tasks} hand-written tasks plus ${fam} generated programs, each asked through ${D.templates.length} different phrasings. A sample, exactly as stored:`));
+    D.task_samples.slice(0, 6).forEach((x) => p.append(pairEl(x.q, x.a, true)));
+    const chips = el("div", "chips"); D.templates.forEach((t) => chips.append(el("span", "chip", t.replace("{t}", "…").replace("{T}", "…"))));
+    p.append(el("h3", null, "Phrasing templates"), chips);
+    return p;
+  }],
+  ["Generators", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, "Generators combine building blocks (an operation, a condition, a sort key, a number) into many distinct programs, so Buddo learns patterns instead of memorizing. Every program is run against an independent reference answer before it can be used."));
+    const bars = el("div", "bars"); const max = Math.max(...D.families.map((f) => f.count));
+    D.families.forEach((f) => {
+      const r = el("div", "bar-row"); const tr = el("div", "track"); const fi = el("div", "fill"); fi.style.width = `${(f.count / max) * 100}%`; tr.append(fi);
+      r.append(el("span", null, f.name.replace(/_/g, " ")), tr, el("b", null, f.count)); bars.append(r);
+    });
+    p.append(bars); return p;
+  }],
+  ["Chat", () => {
+    const p = el("div", "tabpanel");
+    p.append(el("p", null, "Non-code messages teach Buddo when to talk instead of writing code, and to admit what it doesn't know."));
+    D.chat.slice(0, 6).forEach((c) => p.append(pairEl(c.q, c.a, false)));
+    return p;
+  }],
+];
+function pairEl(q, a, code) {
+  const d = el("div", "pair"); d.append(el("div", "q", q));
+  d.append(code ? Object.assign(el("pre"), { textContent: a }) : el("div", "chat-a", a)); return d;
+}
+tabs.forEach(([name, build], i) => {
+  const b = el("button", null, name); b.type = "button"; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", i === 0);
+  const panel = build(); panel.hidden = i !== 0; $("data-panels").append(panel);
+  b.onclick = () => { [...$("data-tabs").children].forEach((x, j) => x.setAttribute("aria-selected", j === i)); [...$("data-panels").children].forEach((x, j) => (x.hidden = j !== i)); };
+  $("data-tabs").append(b);
+});
+
+// ---------- line charts ----------
+function lineChart(host, series, { xLabel, yMin = null }) {
+  series = series.filter((s) => s.points.length);
+  const W = 760, H = 280, m = { l: 40, r: 70, t: 12, b: 34 };
+  const all = series.flatMap((s) => s.points);
+  const xMax = Math.max(...all.map((p) => p[0]));
+  const yLo = yMin ?? Math.floor(Math.min(...all.map((p) => p[1])));
+  const yHi = Math.ceil(Math.max(...all.map((p) => p[1])));
+  const x = (v) => m.l + (v / xMax) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - yLo) / (yHi - yLo)) * (H - m.t - m.b);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("role", "img");
+  const add = (tag, attrs, text) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.append(e); return e; };
+  for (let v = yLo; v <= yHi; v += (yHi - yLo) > 6 ? 2 : 1) {
+    add("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: "var(--grid)" });
+    add("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, v);
+  }
+  const raw = xMax / 5, mag = 10 ** Math.floor(Math.log10(raw));
+  const stepX = [1, 2, 5, 10].map((k) => k * mag).find((k) => k >= raw);
+  for (let v = 0; v <= xMax; v += stepX) {
+    add("text", { x: x(v), y: H - m.b + 18, "text-anchor": "middle" }, v.toLocaleString());
+  }
+  add("text", { x: (W - m.r + m.l) / 2, y: H - 2, "text-anchor": "middle" }, xLabel);
+  series.forEach((s) => {
+    if (s.dots) {
+      s.points.forEach((p) => add("circle", { cx: x(p[0]), cy: y(p[1]), r: 4.5, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }));
+    } else {
+      add("path", { d: s.points.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(""), fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round" });
+    }
+    const last = s.points.at(-1);
+    add("text", { x: x(last[0]) + 8, y: y(last[1]) + (s.labelDy || 4), style: "fill: var(--ink-2); font-weight: 600" }, `${s.name} ${last[1].toFixed(2)}`);
+  });
+  // hover: crosshair + nearest values
+  const cross = add("line", { y1: m.t, y2: H - m.b, stroke: "var(--ink-3)", "stroke-dasharray": "3 3", opacity: 0 });
+  const overlay = add("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  const tip = el("div", "tip"); tip.hidden = true; host.append(svg, tip);
+  overlay.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect(); const sx = ((e.clientX - r.left) / r.width) * W;
+    const step = Math.max(0, Math.min(xMax, ((sx - m.l) / (W - m.l - m.r)) * xMax));
+    const lines = series.map((s) => { const p = s.points.reduce((a, b) => Math.abs(b[0] - step) < Math.abs(a[0] - step) ? b : a); return `${s.name}: ${p[1].toFixed(3)} @ step ${p[0]}`; });
+    cross.setAttribute("x1", x(step)); cross.setAttribute("x2", x(step)); cross.setAttribute("opacity", 1);
+    tip.hidden = false; tip.textContent = lines.join("  ·  ");
+    tip.style.left = `${Math.min(Math.max((x(step) / W) * r.width, 120), r.width - 120)}px`; tip.style.top = `${(m.t / H) * r.height + 8}px`;
+  });
+  overlay.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("opacity", 0); });
+}
+
+const pre = D.curves.pretrain;
+lineChart($("chart-pre"), [
+  { name: "train", color: "var(--series-1)", points: pre.train.map((p) => [p[0], p[1]]), labelDy: -6 },
+  { name: "validation", color: "var(--series-2)", points: pre.val, dots: true, labelDy: 14 },
+], { xLabel: "training step (48 snippets × 256 tokens each)", yMin: 1 });
+$("cap-pre").textContent = `Loss fell from ${pre.train[0][1].toFixed(1)} (random guessing among ${D.vocab.toLocaleString()} tokens) to ${pre.val.at(-1)[1].toFixed(2)} on unseen code, over ${preSteps.toLocaleString()} steps.`;
+
+const ft = D.curves.ft2;
+if (ft.train.length) {
+  lineChart($("chart-ft"), [
+    { name: "train", color: "var(--series-1)", points: ft.train.map((p) => [p[0], p[1]]), labelDy: -6 },
+    { name: "validation", color: "var(--series-2)", points: ft.val, dots: true, labelDy: 14 },
+  ], { xLabel: "fine-tuning step", yMin: 0 });
+  $("cap-ft").textContent = `Starts from the pretrained model. Each batch mixes real code, library pairs and everyday tasks (1 : 1 : 3) so it learns the new skill without forgetting Python. Validation loss ended at ${ft.val.at(-1)?.[1].toFixed(2)}.`;
+}
+
+[
+  ["Layers", "6", "Stacked transformer blocks; each refines its understanding of the text so far"],
+  ["Width", "192", "Numbers used to represent each token inside the model"],
+  ["Attention heads", "6", "Separate ways each layer looks back at earlier tokens"],
+  ["Positions", "ALiBi", "A distance penalty in attention, which lets it read 20,000-token chats despite training on 256"],
+  ["Vocabulary", D.vocab.toLocaleString(), "Word pieces in the tokenizer"],
+  ["Batch", "48 × 256 tokens", "How much text it reads per step"],
+  ["Learning rate", "1.5e-3 → 1.5e-4", "Step size, warming up then decaying on a cosine curve (5e-4 for fine-tuning)"],
+  ["Optimizer", "AdamW, weight decay 0.1", "The update rule; decay keeps the numbers small to avoid memorizing"],
+  ["Precision", "float32 train, float16 ship", "Weights are halved in size for the phone with no visible change"],
+].forEach((r) => { const tr = el("tr"); r.forEach((c, i) => tr.append(el("td", i === 1 ? "n" : null, c))); $("hyper").tBodies[0].append(tr); });
+
+// ---------- exam ----------
+if (v2) {
+  [["before", v1, "Buddo v1 (63 memorized tasks)"], ["after", v2, "Buddo v2 (with generated tasks)"]].forEach(([cls, r, label]) => {
+    const d = el("div", cls); d.append(el("b", null, `${Math.round((r.passed / r.total) * 100)}%`), el("span", null, `${label}: ${r.passed} of ${r.total} programs work`)); $("score").append(d);
+  });
+  const filters = ["All", "Passed", "Failed"]; let current = "All";
+  const render = () => {
+    $("exam").innerHTML = "";
+    v2.log.forEach((q) => {
+      if ((current === "Passed" && !q.pass) || (current === "Failed" && q.pass)) return;
+      const d = el("details"); const s = el("summary");
+      s.append(el("span", `badge ${q.pass ? "pass" : "fail"}`, q.pass ? "PASS" : "FAIL"), el("span", null, q.prompt.replace("write a python function to ", "")));
+      d.append(s, Object.assign(el("pre"), { textContent: q.answer || "(no answer)" })); $("exam").append(d);
+    });
+  };
+  filters.forEach((f) => {
+    const b = el("button", null, f); b.type = "button"; b.setAttribute("aria-selected", f === current);
+    b.onclick = () => { current = f; [...$("exam-filter").children].forEach((x) => x.setAttribute("aria-selected", x.textContent === f)); render(); };
+    $("exam-filter").append(b);
+  });
+  render();
+} else {
+  $("score").append(el("p", "note", "The exam is still running."));
+}
+
+// ---------- compute (log scale) ----------
+(() => {
+  const buddo = 6 * 3.46e6 * totalTokensSeen;
+  const rows = [["Buddo", buddo], ["Buddo × 1,000", buddo * 1000], ["GPT-3 (2020)", 3.14e23]];
+  const W = 760, rowH = 46, m = { l: 120, r: 90, t: 8, b: 30 }, H = m.t + rows.length * rowH + m.b;
+  const lo = 14, hi = 24;
+  const x = (v) => m.l + ((Math.log10(v) - lo) / (hi - lo)) * (W - m.l - m.r);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("role", "img");
+  const add = (tag, a, t) => { const e = document.createElementNS(ns, tag); for (const k in a) e.setAttribute(k, a[k]); if (t != null) e.textContent = t; svg.append(e); return e; };
+  for (let p = lo; p <= hi; p += 2) {
+    add("line", { x1: x(10 ** p), x2: x(10 ** p), y1: m.t, y2: H - m.b, stroke: "var(--grid)" });
+    add("text", { x: x(10 ** p), y: H - 10, "text-anchor": "middle" }, `10^${p}`);
+  }
+  rows.forEach(([name, v], i) => {
+    const yy = m.t + i * rowH + 10;
+    add("text", { x: m.l - 10, y: yy + 17, "text-anchor": "end", style: "fill: var(--ink-2); font-size: 12px" }, name);
+    add("rect", { x: m.l, y: yy, width: Math.max(4, x(v) - m.l), height: 24, rx: 4, fill: i === 2 ? "var(--ink-3)" : "var(--series-1)" });
+    add("text", { x: x(v) + 8, y: yy + 17, style: "fill: var(--ink-2)" }, v.toExponential(1).replace("e+", " × 10^"));
+  });
+  $("chart-compute").append(svg);
+  $("cap-compute").textContent = `Buddo used about ${buddo.toExponential(1).replace("e+", " × 10^")} operations (6 × parameters × tokens trained on). GPT-3 used about ${Math.round(3.14e23 / buddo / 1e6)} million times more. Even 1,000× Buddo is still far below it.`;
+})();
+
+$("cmds").textContent = [
+  "# 1. collect code, train the tokenizer, build datasets",
+  "python prepare.py data /usr/lib/python3.12 /path/to/site-packages",
+  "",
+  "# 2. check every hand-written and generated task actually works",
+  "python tasks.py --check && python generators.py",
+  "python tasks.py data",
+  "",
+  "# 3. pretrain on code (about 90 min on 4 CPU cores)",
+  "python train.py data out --minutes 90",
+  "",
+  "# 4. fine-tune on requests and answers",
+  "python train.py data ft --init out/ckpt.pt --mix raw:1,sft:1,tasks:3 --minutes 40 --lr 5e-4 --warmup 20",
+  "",
+  "# 5. take the exam, then chat with it",
+  "python eval.py data ft/ckpt.pt",
+  'python sample.py data ft/ckpt.pt "hi" "sort a list of words by length"',
+  "",
+  "# 6. ship it to the phone app",
+  "cp data/tokenizer.json ft/buddo-model.bin ../public/",
+].join("\n");
+</script>
